@@ -1,0 +1,49 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries
+bin/
+cascade
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Credentials & secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local caches
+.cache/
+
+# Claude Code local settings
+.claude/
+
+# Planning & specs (internal)
+.planning/
+specs/
+
+# Dev-internal docs (kept at root for gstack/Claude Code discovery, not shipped)
+CLAUDE.md
+DESIGN.md
+ROADMAP.md
+TODOS.md

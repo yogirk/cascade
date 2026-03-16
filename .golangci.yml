@@ -1,0 +1,61 @@
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - unused
+    - ineffassign
+    - gocritic
+    - misspell
+  disable:
+    - depguard
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - appendAssign
+      - hugeParam
+      - preferFprint
+      - ifElseChain
+      - rangeValCopy
+      - appendCombine
+      - singleCaseSwitch
+      - equalFold
+      - stringXbytes
+  errcheck:
+    exclude-functions:
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - fmt.Sscanf
+      - (io.Closer).Close
+      - (*database/sql.Tx).Rollback
+      - (*database/sql.DB).Exec
+      - crypto/rand.Read
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
+  exclude-dirs:
+    - vendor
+  exclude-rules:
+    # google.CredentialsFromJSON is deprecated for untrusted input; ours comes from user's own config
+    - path: internal/auth/resource.go
+      linters: [staticcheck]
+      text: "SA1019.*CredentialsFromJSON"
+    # Anthropic SDK accumulator — errors surfaced via stream.Err()
+    - path: internal/provider/anthropic/anthropic.go
+      linters: [errcheck]
+      text: "msg.Accumulate"
+    # Migration teardown — best-effort DROP TABLE
+    - path: internal/schema/migrations.go
+      linters: [errcheck]
+      text: "db.Exec"
