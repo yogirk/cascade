@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/pkg/types"
 	"google.golang.org/genai"
 )
 
@@ -78,7 +78,7 @@ func TestConvertToGenAI_AssistantWithToolCalls(t *testing.T) {
 
 func TestConvertToGenAI_ToolResult(t *testing.T) {
 	msgs := []types.Message{
-		types.ToolResultMessage("call_1", "read_file", "file contents here", false),
+		types.ToolResultMessage("call_1", "file contents here", false),
 	}
 
 	contents := convertToGenAI(msgs)
@@ -97,8 +97,8 @@ func TestConvertToGenAI_ToolResult(t *testing.T) {
 	if fr == nil {
 		t.Fatal("expected function response part")
 	}
-	if fr.Name != "read_file" {
-		t.Errorf("expected function response name %q, got %q", "read_file", fr.Name)
+	if fr.Name != "call_1" {
+		t.Errorf("expected function response name %q, got %q", "call_1", fr.Name)
 	}
 	output, ok := fr.Response["output"]
 	if !ok {
@@ -111,7 +111,7 @@ func TestConvertToGenAI_ToolResult(t *testing.T) {
 
 func TestConvertToGenAI_ToolResultError(t *testing.T) {
 	msgs := []types.Message{
-		types.ToolResultMessage("call_2", "bash", "permission denied", true),
+		types.ToolResultMessage("call_2", "permission denied", true),
 	}
 
 	contents := convertToGenAI(msgs)
@@ -143,38 +143,6 @@ func TestConvertToGenAI_SystemMessage(t *testing.T) {
 	}
 	if contents[0].Role != "user" {
 		t.Errorf("expected role %q, got %q", "user", contents[0].Role)
-	}
-}
-
-func TestConvertToGenAI_SkipsEmptyMessages(t *testing.T) {
-	msgs := []types.Message{
-		types.SystemMessage(""),
-		types.UserMessage(""),
-		types.AssistantMessage("", nil),
-		types.AssistantMessage("real text", nil),
-	}
-
-	contents := convertToGenAI(msgs)
-
-	if len(contents) != 1 {
-		t.Fatalf("expected 1 content, got %d", len(contents))
-	}
-	if contents[0].Role != "model" {
-		t.Fatalf("expected model role, got %q", contents[0].Role)
-	}
-	if len(contents[0].Parts) != 1 || contents[0].Parts[0].Text != "real text" {
-		t.Fatalf("expected one text part with real content, got %#v", contents[0].Parts)
-	}
-}
-
-func TestBuildConfig_SkipsEmptySystemInstruction(t *testing.T) {
-	config := buildConfig([]types.Message{
-		types.SystemMessage(""),
-		types.UserMessage("hello"),
-	}, nil)
-
-	if config.SystemInstruction != nil {
-		t.Fatal("expected nil system instruction for empty system message")
 	}
 }
 

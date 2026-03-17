@@ -7,30 +7,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/provider"
+	"github.com/cascade-cli/cascade/pkg/types"
 	"google.golang.org/genai"
 )
 
 // GeminiProvider wraps the GenAI SDK client behind the Provider interface.
 type GeminiProvider struct {
 	client    *genai.Client
-	mu        sync.RWMutex
 	modelName string
 }
 
-// New creates a GeminiProvider. If clientConfig is nil, an empty config is
-// used and the SDK auto-detects the backend from environment variables:
-//
-//   - GOOGLE_API_KEY → Gemini API (AI Studio, no project needed)
-//   - GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT → Vertex AI with ADC
-//
-// See: https://pkg.go.dev/google.golang.org/genai#BackendUnspecified
+// New creates a GeminiProvider. It initializes a GenAI SDK client using
+// Application Default Credentials via the Vertex AI backend.
+// If clientConfig is nil, defaults to VertexAI backend with ADC.
 func New(ctx context.Context, modelName string, clientConfig *genai.ClientConfig) (*GeminiProvider, error) {
 	if clientConfig == nil {
-		clientConfig = &genai.ClientConfig{}
+		clientConfig = &genai.ClientConfig{
+			Backend: genai.BackendVertexAI,
+		}
 	}
 
 	client, err := genai.NewClient(ctx, clientConfig)
@@ -44,30 +40,16 @@ func New(ctx context.Context, modelName string, clientConfig *genai.ClientConfig
 	}, nil
 }
 
-// Model returns the configured model identifier.
+// Model returns the model identifier (e.g., "gemini-2.5-pro").
 func (g *GeminiProvider) Model() string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
 	return g.modelName
 }
 
-// SetModel updates the model identifier.
-func (g *GeminiProvider) SetModel(name string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.modelName = name
-}
-
-// GenerateStream converts internal types to genai SDK types, executes a single model and returns
+// GenerateStream sends conversation history to the Gemini model and returns
 // a streaming response. Tokens arrive on Stream.Tokens() channel.
 func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Message, tools []provider.Declaration) (*provider.Stream, error) {
 	contents := convertToGenAI(messages)
 	config := buildConfig(messages, tools)
-
-	// Capture model name under lock to avoid racing with SetModel.
-	g.mu.RLock()
-	model := g.modelName
-	g.mu.RUnlock()
 
 	tokens := make(chan string, 256)
 	result := make(chan provider.StreamResult, 1)
@@ -78,21 +60,11 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 
 		var textParts []string
 		var toolCalls []types.ToolCall
-		var usage *types.Usage
 
-		for resp, err := range g.client.Models.GenerateContentStream(ctx, model, contents, config) {
+		for resp, err := range g.client.Models.GenerateContentStream(ctx, g.modelName, contents, config) {
 			if err != nil {
 				result <- provider.StreamResult{Err: fmt.Errorf("streaming error: %w", err)}
 				return
-			}
-
-			// Capture usage metadata (typically on the last chunk)
-			if resp.UsageMetadata != nil {
-				usage = &types.Usage{
-					PromptTokens:     resp.UsageMetadata.PromptTokenCount,
-					CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
-					TotalTokens:      resp.UsageMetadata.TotalTokenCount,
-				}
 			}
 
 			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -117,8 +89,6 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 						result <- provider.StreamResult{Err: err}
 						return
 					}
-					// Preserve thought signature for thinking models (Gemini 3+)
-					tc.ThoughtSignature = part.ThoughtSignature
 					toolCalls = append(toolCalls, tc)
 				}
 			}
@@ -128,7 +98,6 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 			Response: &types.Response{
 				Text:      strings.Join(textParts, ""),
 				ToolCalls: toolCalls,
-				Usage:     usage,
 			},
 		}
 	}()
@@ -142,7 +111,7 @@ func buildConfig(messages []types.Message, tools []provider.Declaration) *genai.
 
 	// Extract system instruction from messages
 	for _, msg := range messages {
-		if msg.Role == types.RoleSystem && strings.TrimSpace(msg.Content) != "" {
+		if msg.Role == types.RoleSystem {
 			config.SystemInstruction = &genai.Content{
 				Parts: []*genai.Part{
 					{Text: msg.Content},
@@ -185,9 +154,6 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 			continue
 
 		case types.RoleUser:
-			if strings.TrimSpace(msg.Content) == "" {
-				continue
-			}
 			contents = append(contents, &genai.Content{
 				Role:  "user",
 				Parts: []*genai.Part{{Text: msg.Content}},
@@ -195,7 +161,7 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 
 		case types.RoleAssistant:
 			c := &genai.Content{Role: "model"}
-			if strings.TrimSpace(msg.Content) != "" {
+			if msg.Content != "" {
 				c.Parts = append(c.Parts, &genai.Part{Text: msg.Content})
 			}
 			for _, tc := range msg.ToolCalls {
@@ -209,13 +175,9 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 						Name: tc.Name,
 						Args: args,
 					},
-					// Echo back thought signature for thinking models (Gemini 3+)
-					ThoughtSignature: tc.ThoughtSignature,
 				})
 			}
-			if len(c.Parts) > 0 {
-				contents = append(contents, c)
-			}
+			contents = append(contents, c)
 
 		case types.RoleTool:
 			if msg.ToolResult != nil {
@@ -230,7 +192,7 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 					Parts: []*genai.Part{
 						{
 							FunctionResponse: &genai.FunctionResponse{
-								Name:     msg.ToolResult.Name,
+								Name:     msg.ToolResult.CallID,
 								Response: respMap,
 							},
 						},

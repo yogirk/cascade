@@ -6,14 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // TestEventProcessing_Tokens verifies that TokenEvents are written to stdout.
 func TestEventProcessing_Tokens(t *testing.T) {
 	events := make(chan types.Event, 10)
-	approvals := make(chan types.ApprovalRequest, 1)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -24,7 +23,7 @@ func TestEventProcessing_Tokens(t *testing.T) {
 	events <- &types.DoneEvent{}
 	close(events)
 
-	processEvents(events, approvals, nil, stdout, stderr)
+	processEvents(events, nil, stdout, stderr)
 
 	got := stdout.String()
 	if !strings.Contains(got, "Hello world") {
@@ -35,12 +34,11 @@ func TestEventProcessing_Tokens(t *testing.T) {
 // TestEventProcessing_PermissionDenied verifies auto-deny in non-bypass mode.
 func TestEventProcessing_PermissionDenied(t *testing.T) {
 	events := make(chan types.Event, 10)
-	approvals := make(chan types.ApprovalRequest, 1)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	responseCh := make(chan types.ApprovalDecision, 1)
-	approvals <- types.ApprovalRequest{
+	responseCh := make(chan bool, 1)
+	events <- &types.PermissionRequestEvent{
 		ToolName:  "bash",
 		RiskLevel: "DESTRUCTIVE",
 		Response:  responseCh,
@@ -48,12 +46,12 @@ func TestEventProcessing_PermissionDenied(t *testing.T) {
 	events <- &types.DoneEvent{}
 	close(events)
 
-	perms := permission.NewEngine(permission.ModeAsk)
-	processEvents(events, approvals, perms, stdout, stderr)
+	perms := permission.NewEngine(permission.ModeConfirm)
+	processEvents(events, perms, stdout, stderr)
 
 	// Check that permission was denied
-	decision := <-responseCh
-	if decision.Action != types.ApprovalDeny {
+	approved := <-responseCh
+	if approved {
 		t.Error("expected permission to be denied in confirm mode")
 	}
 
@@ -66,12 +64,11 @@ func TestEventProcessing_PermissionDenied(t *testing.T) {
 // TestEventProcessing_PermissionBypass verifies auto-approve in bypass mode.
 func TestEventProcessing_PermissionBypass(t *testing.T) {
 	events := make(chan types.Event, 10)
-	approvals := make(chan types.ApprovalRequest, 1)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	responseCh := make(chan types.ApprovalDecision, 1)
-	approvals <- types.ApprovalRequest{
+	responseCh := make(chan bool, 1)
+	events <- &types.PermissionRequestEvent{
 		ToolName:  "bash",
 		RiskLevel: "DESTRUCTIVE",
 		Response:  responseCh,
@@ -79,12 +76,12 @@ func TestEventProcessing_PermissionBypass(t *testing.T) {
 	events <- &types.DoneEvent{}
 	close(events)
 
-	perms := permission.NewEngine(permission.ModeFullAccess)
-	processEvents(events, approvals, perms, stdout, stderr)
+	perms := permission.NewEngine(permission.ModeBypass)
+	processEvents(events, perms, stdout, stderr)
 
 	// Check that permission was approved
-	decision := <-responseCh
-	if decision.Action != types.ApprovalAllowOnce {
+	approved := <-responseCh
+	if !approved {
 		t.Error("expected permission to be approved in bypass mode")
 	}
 }
@@ -92,7 +89,6 @@ func TestEventProcessing_PermissionBypass(t *testing.T) {
 // TestEventProcessing_ErrorEvent verifies error events are written to stderr.
 func TestEventProcessing_ErrorEvent(t *testing.T) {
 	events := make(chan types.Event, 10)
-	approvals := make(chan types.ApprovalRequest, 1)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -100,7 +96,7 @@ func TestEventProcessing_ErrorEvent(t *testing.T) {
 	events <- &types.DoneEvent{}
 	close(events)
 
-	processEvents(events, approvals, nil, stdout, stderr)
+	processEvents(events, nil, stdout, stderr)
 
 	if !strings.Contains(stderr.String(), "something broke") {
 		t.Errorf("expected error on stderr, got %q", stderr.String())
@@ -110,7 +106,6 @@ func TestEventProcessing_ErrorEvent(t *testing.T) {
 // TestEventProcessing_ToolError verifies tool errors are written to stderr.
 func TestEventProcessing_ToolError(t *testing.T) {
 	events := make(chan types.Event, 10)
-	approvals := make(chan types.ApprovalRequest, 1)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -118,7 +113,7 @@ func TestEventProcessing_ToolError(t *testing.T) {
 	events <- &types.DoneEvent{}
 	close(events)
 
-	processEvents(events, approvals, nil, stdout, stderr)
+	processEvents(events, nil, stdout, stderr)
 
 	if !strings.Contains(stderr.String(), "Tool error (bash)") {
 		t.Errorf("expected tool error on stderr, got %q", stderr.String())

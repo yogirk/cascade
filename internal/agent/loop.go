@@ -2,29 +2,26 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"time"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/provider"
+	"github.com/cascade-cli/cascade/internal/tools"
+	"github.com/cascade-cli/cascade/internal/tools/core"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // Agent drives the observe-reason-act conversation cycle.
 // It connects the LLM provider, tool registry, and permission engine.
 type Agent struct {
-	provider         provider.Provider
-	registry         *tools.Registry
-	permissions      *permission.Engine
-	approvals        chan<- types.ApprovalRequest
-	contextInjector  func(string) string
-	governor         *Governor
-	session          *Session
-	events           EventHandler
-	maxRetries       int // per tool call error retry, default 2
-	toolTimeout      time.Duration
-	lastPromptTokens int32
+	provider    provider.Provider
+	registry    *tools.Registry
+	permissions *permission.Engine
+	governor    *Governor
+	session     *Session
+	events      EventHandler
+	maxRetries  int // per tool call error retry, default 2
 }
 
 // AgentConfig holds the configuration for creating a new Agent.
@@ -33,34 +30,24 @@ type AgentConfig struct {
 	Registry     *tools.Registry
 	Permissions  *permission.Engine
 	MaxToolCalls int
-	ToolTimeout  int // seconds; 0 means default (120s)
 	SystemPrompt string
 	Events       EventHandler
-	Approvals    chan<- types.ApprovalRequest
-	ContextInjector func(string) string
 }
 
 // New creates a new Agent from the given configuration.
 func New(cfg AgentConfig) *Agent {
 	maxCalls := cfg.MaxToolCalls
 	if maxCalls <= 0 {
-		maxCalls = 200
-	}
-	timeout := time.Duration(cfg.ToolTimeout) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+		maxCalls = 15
 	}
 	return &Agent{
 		provider:    cfg.Provider,
 		registry:    cfg.Registry,
 		permissions: cfg.Permissions,
-		approvals:   cfg.Approvals,
-		contextInjector: cfg.ContextInjector,
 		governor:    NewGovernor(maxCalls),
 		session:     NewSession(cfg.SystemPrompt),
 		events:      cfg.Events,
 		maxRetries:  2,
-		toolTimeout: timeout,
 	}
 }
 
@@ -68,31 +55,11 @@ func New(cfg AgentConfig) *Agent {
 // processes tool calls, and loops until the LLM produces a text-only response
 // or governor limits are hit.
 func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
-	a.emit(&types.TurnStartEvent{Input: userInput})
 	a.session.Append(types.UserMessage(userInput))
 	a.governor.Reset()
 	toolCallCount := 0
 
-	// Compute context injection once per turn (not per loop iteration).
-	// Schema context is derived from userInput which is constant within a turn.
-	var injectedContext string
-	if a.contextInjector != nil {
-		injectedContext = a.contextInjector(userInput)
-	}
-
 	for {
-		// Auto-compact if context window is filling up (>= 80%)
-		if a.lastPromptTokens > 0 && ShouldCompact(a.lastPromptTokens, a.provider.Model(), 80.0) {
-			newMessages, _, err := CompactSession(ctx, a.provider, a.session.Messages(), 6)
-			if err == nil {
-				beforeTokens := a.lastPromptTokens
-				a.session.Replace(newMessages)
-				a.session.NotifySave()
-				a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
-				// AfterTokens will be updated on next LLM response
-			}
-		}
-
 		// Check governor limit
 		if a.governor.CheckLimit(toolCallCount) {
 			a.emit(&types.ErrorEvent{Err: fmt.Errorf("reached tool call limit (%d)", a.governor.maxToolCalls)})
@@ -104,29 +71,14 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 		declarations := a.registry.Declarations()
 
 		// Stream LLM response
-		a.emit(&types.StreamStartEvent{})
-		messages := a.session.Messages()
-		if injectedContext != "" {
-			if len(messages) > 0 && messages[0].Role == types.RoleSystem {
-				enriched := make([]types.Message, 0, len(messages)+1)
-				enriched = append(enriched, messages[0], types.SystemMessage(injectedContext))
-				enriched = append(enriched, messages[1:]...)
-				messages = enriched
-			} else {
-				messages = append([]types.Message{types.SystemMessage(injectedContext)}, messages...)
-			}
-		}
-
-		stream, err := a.provider.GenerateStream(ctx, messages, declarations)
+		stream, err := a.provider.GenerateStream(ctx, a.session.Messages(), declarations)
 		if err != nil {
 			a.emit(&types.ErrorEvent{Err: err})
 			return err
 		}
 
 		// Forward streaming tokens
-		tokensDone := make(chan struct{})
 		go func() {
-			defer close(tokensDone)
 			for token := range stream.Tokens() {
 				a.emit(&types.TokenEvent{Token: token})
 			}
@@ -139,26 +91,12 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 			return err
 		}
 
-		// Wait for all tokens to be forwarded before signaling completion
-		<-tokensDone
-
-		// Track context usage for auto-compaction
-		if response.Usage != nil {
-			a.lastPromptTokens = response.Usage.PromptTokens
-		}
-
-		// Avoid recording an empty assistant turn; Vertex rejects model content with no parts.
-		if response.Text != "" || len(response.ToolCalls) > 0 {
-			a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
-		}
-
-		// Emit StreamComplete event before processing tool calls
-		a.emit(&types.StreamCompleteEvent{Content: response.Text, Usage: response.Usage})
+		// Append assistant message to session
+		a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
 
 		// No tool calls = turn complete
 		if len(response.ToolCalls) == 0 {
 			a.emit(&types.DoneEvent{})
-			a.session.NotifySave()
 			return nil
 		}
 
@@ -168,7 +106,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 			// Governor: duplicate detection
 			if a.governor.IsDuplicate(call.Name, call.Input) {
-				a.session.Append(types.ToolResultMessage(call.ID, call.Name,
+				a.session.Append(types.ToolResultMessage(call.ID,
 					"Duplicate tool call detected. Please try a different approach or ask the user for clarification.", true))
 				continue
 			}
@@ -180,7 +118,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 			// Execute with permission check
 			result := a.executeWithPermission(ctx, call)
-			a.session.Append(types.ToolResultMessage(call.ID, call.Name, result.Content, result.IsError))
+			a.session.Append(types.ToolResultMessage(call.ID, result.Content, result.IsError))
 		}
 	}
 }
@@ -195,37 +133,20 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		}
 	}
 
-	a.emit(&types.ToolStartEvent{Name: call.Name, Input: call.Input, RiskLevel: tool.RiskLevel().String()})
+	a.emit(&types.ToolStartEvent{Name: call.Name, Input: call.Input})
 
-	// Permission check — tools implement PermissionPlanner for input-aware risk classification
+	// Dynamic risk classification for bash
 	var riskTool permission.ToolRiskProvider = tool
-	baseRisk := riskTool.RiskLevel()
-	if planner, ok := tool.(tools.PermissionPlanner); ok {
-		plan, err := planner.PlanPermission(ctx, call.Input, baseRisk)
-		if err != nil {
-			result := &tools.Result{
-				Content: fmt.Sprintf("Permission planning failed for %s: %v", call.Name, err),
-				IsError: true,
-			}
-			a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: true})
-			return result
+	if call.Name == "bash" {
+		var input struct {
+			Command string `json:"command"`
 		}
-		if plan != nil {
-			if plan.DenyMessage != "" {
-				result := &tools.Result{
-					Content: plan.DenyMessage,
-					Display: plan.DenyMessage,
-					IsError: true,
-				}
-				a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, Display: result.Display, IsError: true})
-				return result
-			}
-			if plan.RiskOverride != nil {
-				riskTool = &dynamicRiskTool{Tool: tool, risk: *plan.RiskOverride}
-			}
+		if err := json.Unmarshal(call.Input, &input); err == nil {
+			riskTool = &dynamicRiskTool{Tool: tool, risk: core.ClassifyBashRisk(input.Command)}
 		}
 	}
 
+	// Permission check
 	decision := a.permissions.Check(riskTool, call.Input)
 	switch decision {
 	case permission.Deny:
@@ -238,45 +159,16 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		return result
 
 	case permission.Confirm:
-		if a.approvals == nil {
-			return &tools.Result{
-				Content: "Permission check requires approval handling, but no approver is configured.",
-				IsError: true,
-			}
-		}
-
-		// Send a dedicated approval request instead of using the generic event stream.
-		responseCh := make(chan types.ApprovalDecision, 1)
-		request := types.ApprovalRequest{
+		// Emit permission request and wait for response
+		responseCh := make(chan bool, 1)
+		a.emit(&types.PermissionRequestEvent{
 			ToolName:  call.Name,
 			Input:     call.Input,
 			RiskLevel: riskTool.RiskLevel().String(),
 			Response:  responseCh,
-		}
-		select {
-		case a.approvals <- request:
-		case <-ctx.Done():
-			return &tools.Result{
-				Content: fmt.Sprintf("Permission request canceled for %s.", call.Name),
-				IsError: true,
-			}
-		}
-
-		var decision types.ApprovalDecision
-		select {
-		case decision = <-responseCh:
-		case <-ctx.Done():
-			return &tools.Result{
-				Content: fmt.Sprintf("Permission request canceled for %s.", call.Name),
-				IsError: true,
-			}
-		}
-		switch decision.Action {
-		case types.ApprovalAllowOnce:
-			// proceed without caching
-		case types.ApprovalAllowToolSession:
-			a.permissions.CacheToolDecision(call.Name, permission.Allow)
-		default:
+		})
+		approved := <-responseCh
+		if !approved {
 			result := &tools.Result{
 				Content: fmt.Sprintf("User denied permission for %s.", call.Name),
 				IsError: true,
@@ -284,22 +176,22 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 			a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: true})
 			return result
 		}
+		// Cache the approval for this tool+args
+		a.permissions.CacheDecision(call.Name, call.Input, permission.Allow)
 	}
 
-	// Execute the tool with timeout
-	execCtx, cancel := context.WithTimeout(ctx, a.toolTimeout)
-	defer cancel()
-	result, err := tool.Execute(execCtx, call.Input)
+	// Execute the tool
+	result, err := tool.Execute(ctx, call.Input)
 	if err != nil {
 		errResult := &tools.Result{
 			Content: fmt.Sprintf("Tool error: %v", err),
 			IsError: true,
 		}
-		a.emit(&types.ToolEndEvent{Name: call.Name, Content: errResult.Content, Display: errResult.Content, IsError: true, Err: err})
+		a.emit(&types.ToolEndEvent{Name: call.Name, Content: errResult.Content, IsError: true, Err: err})
 		return errResult
 	}
 
-	a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, Display: result.Display, IsError: result.IsError})
+	a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: result.IsError})
 	return result
 }
 
@@ -308,19 +200,6 @@ func (a *Agent) emit(event types.Event) {
 	if a.events != nil {
 		a.events.HandleEvent(event)
 	}
-}
-
-// Compact triggers manual session compaction.
-func (a *Agent) Compact(ctx context.Context) error {
-	newMessages, _, err := CompactSession(ctx, a.provider, a.session.Messages(), 6)
-	if err != nil {
-		return err
-	}
-	beforeTokens := a.lastPromptTokens
-	a.session.Replace(newMessages)
-	a.session.NotifySave()
-	a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
-	return nil
 }
 
 // Session returns the agent's session for external access.

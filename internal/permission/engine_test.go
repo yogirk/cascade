@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/permission"
 )
 
 // mockTool implements ToolRiskProvider for testing.
@@ -106,9 +106,9 @@ func TestMode_String(t *testing.T) {
 		mode permission.Mode
 		want string
 	}{
-		{permission.ModeAsk, "ASK"},
-		{permission.ModeReadOnly, "READ ONLY"},
-		{permission.ModeFullAccess, "FULL ACCESS"},
+		{permission.ModeConfirm, "CONFIRM"},
+		{permission.ModePlan, "PLAN"},
+		{permission.ModeBypass, "BYPASS"},
 	}
 
 	for _, tc := range cases {
@@ -126,9 +126,9 @@ func TestCycleMode(t *testing.T) {
 		from permission.Mode
 		to   permission.Mode
 	}{
-		{permission.ModeAsk, permission.ModeReadOnly},
-		{permission.ModeReadOnly, permission.ModeFullAccess},
-		{permission.ModeFullAccess, permission.ModeAsk},
+		{permission.ModeConfirm, permission.ModePlan},
+		{permission.ModePlan, permission.ModeBypass},
+		{permission.ModeBypass, permission.ModeConfirm},
 	}
 
 	for _, tc := range cases {
@@ -143,89 +143,89 @@ func TestCycleMode(t *testing.T) {
 
 // --- Engine Tests ---
 
-func TestCheck_AskMode_ReadOnly(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
+func TestCheck_ConfirmMode_ReadOnly(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeConfirm)
 	tool := &mockTool{name: "read_file", risk: permission.RiskReadOnly}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Allow {
-		t.Errorf("Check(ReadOnly in ASK) = %v, want Allow", got)
+		t.Errorf("Check(ReadOnly in CONFIRM) = %v, want Allow", got)
 	}
 }
 
-func TestCheck_AskMode_DML(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
+func TestCheck_ConfirmMode_DML(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeConfirm)
 	tool := &mockTool{name: "write_file", risk: permission.RiskDML}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Confirm {
-		t.Errorf("Check(DML in ASK) = %v, want Confirm", got)
+		t.Errorf("Check(DML in CONFIRM) = %v, want Confirm", got)
 	}
 }
 
-func TestCheck_AskMode_Destructive(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
+func TestCheck_ConfirmMode_Destructive(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeConfirm)
 	tool := &mockTool{name: "bash", risk: permission.RiskDestructive}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Confirm {
-		t.Errorf("Check(Destructive in ASK) = %v, want Confirm", got)
+		t.Errorf("Check(Destructive in CONFIRM) = %v, want Confirm", got)
 	}
 }
 
-func TestCheck_ReadOnlyMode_ReadOnly(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeReadOnly)
+func TestCheck_PlanMode_ReadOnly(t *testing.T) {
+	engine := permission.NewEngine(permission.ModePlan)
 	tool := &mockTool{name: "read_file", risk: permission.RiskReadOnly}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Allow {
-		t.Errorf("Check(ReadOnly in READ ONLY) = %v, want Allow", got)
+		t.Errorf("Check(ReadOnly in PLAN) = %v, want Allow", got)
 	}
 }
 
-func TestCheck_ReadOnlyMode_DML(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeReadOnly)
+func TestCheck_PlanMode_DML(t *testing.T) {
+	engine := permission.NewEngine(permission.ModePlan)
 	tool := &mockTool{name: "write_file", risk: permission.RiskDML}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Deny {
-		t.Errorf("Check(DML in READ ONLY) = %v, want Deny", got)
+		t.Errorf("Check(DML in PLAN) = %v, want Deny", got)
 	}
 }
 
-func TestCheck_ReadOnlyMode_Destructive(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeReadOnly)
+func TestCheck_PlanMode_Destructive(t *testing.T) {
+	engine := permission.NewEngine(permission.ModePlan)
 	tool := &mockTool{name: "bash", risk: permission.RiskDestructive}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Deny {
-		t.Errorf("Check(Destructive in READ ONLY) = %v, want Deny", got)
+		t.Errorf("Check(Destructive in PLAN) = %v, want Deny", got)
 	}
 }
 
-func TestCheck_FullAccessMode_ReadOnly(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeFullAccess)
+func TestCheck_BypassMode_ReadOnly(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeBypass)
 	tool := &mockTool{name: "read_file", risk: permission.RiskReadOnly}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Allow {
-		t.Errorf("Check(ReadOnly in FULL ACCESS) = %v, want Allow", got)
+		t.Errorf("Check(ReadOnly in BYPASS) = %v, want Allow", got)
 	}
 }
 
-func TestCheck_FullAccessMode_DML(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeFullAccess)
+func TestCheck_BypassMode_DML(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeBypass)
 	tool := &mockTool{name: "write_file", risk: permission.RiskDML}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Allow {
-		t.Errorf("Check(DML in FULL ACCESS) = %v, want Allow", got)
+		t.Errorf("Check(DML in BYPASS) = %v, want Allow", got)
 	}
 }
 
-func TestCheck_FullAccessMode_Destructive(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeFullAccess)
+func TestCheck_BypassMode_Destructive(t *testing.T) {
+	engine := permission.NewEngine(permission.ModeBypass)
 	tool := &mockTool{name: "bash", risk: permission.RiskDestructive}
 	got := engine.Check(tool, json.RawMessage(`{}`))
 	if got != permission.Allow {
-		t.Errorf("Check(Destructive in FULL ACCESS) = %v, want Allow", got)
+		t.Errorf("Check(Destructive in BYPASS) = %v, want Allow", got)
 	}
 }
 
 func TestCacheDecision(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
+	engine := permission.NewEngine(permission.ModeConfirm)
 	tool := &mockTool{name: "write_file", risk: permission.RiskDML}
 	input := json.RawMessage(`{"file_path": "/tmp/test.txt"}`)
 
@@ -245,48 +245,33 @@ func TestCacheDecision(t *testing.T) {
 	}
 }
 
-func TestCacheToolDecision(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
-	tool := &mockTool{name: "bash", risk: permission.RiskDML}
-
-	if got := engine.Check(tool, json.RawMessage(`{"command":"echo one"}`)); got != permission.Confirm {
-		t.Fatalf("before tool cache: Check = %v, want Confirm", got)
-	}
-
-	engine.CacheToolDecision(tool.Name(), permission.Allow)
-
-	if got := engine.Check(tool, json.RawMessage(`{"command":"echo two"}`)); got != permission.Allow {
-		t.Fatalf("after tool cache: Check = %v, want Allow", got)
-	}
-}
-
 func TestEngine_CycleMode(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
+	engine := permission.NewEngine(permission.ModeConfirm)
 
-	if engine.Mode() != permission.ModeAsk {
-		t.Fatalf("initial mode = %v, want ASK", engine.Mode())
+	if engine.Mode() != permission.ModeConfirm {
+		t.Fatalf("initial mode = %v, want CONFIRM", engine.Mode())
 	}
 
 	engine.CycleMode()
-	if engine.Mode() != permission.ModeReadOnly {
-		t.Errorf("after first cycle: %v, want READ ONLY", engine.Mode())
+	if engine.Mode() != permission.ModePlan {
+		t.Errorf("after first cycle: %v, want PLAN", engine.Mode())
 	}
 
 	engine.CycleMode()
-	if engine.Mode() != permission.ModeFullAccess {
-		t.Errorf("after second cycle: %v, want FULL ACCESS", engine.Mode())
+	if engine.Mode() != permission.ModeBypass {
+		t.Errorf("after second cycle: %v, want BYPASS", engine.Mode())
 	}
 
 	engine.CycleMode()
-	if engine.Mode() != permission.ModeAsk {
-		t.Errorf("after third cycle: %v, want ASK", engine.Mode())
+	if engine.Mode() != permission.ModeConfirm {
+		t.Errorf("after third cycle: %v, want CONFIRM", engine.Mode())
 	}
 }
 
 func TestEngine_SetMode(t *testing.T) {
-	engine := permission.NewEngine(permission.ModeAsk)
-	engine.SetMode(permission.ModeFullAccess)
-	if engine.Mode() != permission.ModeFullAccess {
-		t.Errorf("after SetMode(FullAccess): %v, want FULL ACCESS", engine.Mode())
+	engine := permission.NewEngine(permission.ModeConfirm)
+	engine.SetMode(permission.ModeBypass)
+	if engine.Mode() != permission.ModeBypass {
+		t.Errorf("after SetMode(Bypass): %v, want BYPASS", engine.Mode())
 	}
 }

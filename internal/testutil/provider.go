@@ -4,8 +4,8 @@ package testutil
 import (
 	"context"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/provider"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // MockProvider implements provider.Provider for testing.
@@ -16,18 +16,10 @@ type MockProvider struct {
 	Err       error           // Error to return from GenerateStream
 }
 
-var _ provider.Provider = (*MockProvider)(nil)      // Compile-time check
-var _ provider.ModelSwitcher = (*MockProvider)(nil) // Compile-time check
+var _ provider.Provider = (*MockProvider)(nil) // Compile-time check
 
 // Model returns the configured model name.
-func (m *MockProvider) Model() string {
-	return m.ModelName
-}
-
-// SetModel updates the configured model name.
-func (m *MockProvider) SetModel(name string) {
-	m.ModelName = name
-}
+func (m *MockProvider) Model() string { return m.ModelName }
 
 // GenerateStream returns a stream that emits preconfigured tokens and response.
 func (m *MockProvider) GenerateStream(ctx context.Context, messages []types.Message, tools []provider.Declaration) (*provider.Stream, error) {

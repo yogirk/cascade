@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/yogirk/cascade/internal/app"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/app"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // Run executes a one-shot conversation: sends the prompt to the agent, streams
@@ -18,7 +18,7 @@ func Run(ctx context.Context, application *app.App, prompt string, stdout io.Wri
 	// Start goroutine to consume events and write to stdout
 	done := make(chan error, 1)
 	go func() {
-		processEvents(application.Events, application.Approvals, application.Permissions, stdout, stderr)
+		processEvents(application.Events, application.Permissions, stdout, stderr)
 		done <- nil
 	}()
 
@@ -32,59 +32,32 @@ func Run(ctx context.Context, application *app.App, prompt string, stdout io.Wri
 
 // processEvents reads events from the channel and writes output to stdout/stderr.
 // It returns when a DoneEvent is received or the channel is closed.
-func processEvents(events <-chan types.Event, approvals <-chan types.ApprovalRequest, perms *permission.Engine, stdout io.Writer, stderr io.Writer) {
-	for {
-		select {
-		case req, ok := <-approvals:
-			if !ok {
-				approvals = nil
-				break
+func processEvents(events <-chan types.Event, perms *permission.Engine, stdout io.Writer, stderr io.Writer) {
+	for event := range events {
+		switch e := event.(type) {
+		case *types.TokenEvent:
+			fmt.Fprint(stdout, e.Token)
+		case *types.ToolStartEvent:
+			// In one-shot mode, tool execution is silent (no spinner)
+		case *types.ToolEndEvent:
+			if e.IsError {
+				fmt.Fprintf(stderr, "\nTool error (%s): %s\n", e.Name, e.Content)
 			}
-			if perms != nil && perms.Mode() == permission.ModeFullAccess {
-				req.Response <- types.ApprovalDecision{Action: types.ApprovalAllowOnce}
-			} else {
-				fmt.Fprintf(stderr, "\nPermission required for %s [%s] -- denied in one-shot mode. Use --bypass to enable full-access mode.\n",
-					req.ToolName, req.RiskLevel)
-				req.Response <- types.ApprovalDecision{Action: types.ApprovalDeny}
-			}
-			continue
-		default:
-		}
-
-		select {
-		case req, ok := <-approvals:
-			if !ok {
-				approvals = nil
-				continue
-			}
+		case *types.PermissionRequestEvent:
 			// One-shot mode auto-denies DML+ operations for safety
-			// unless the user explicitly enabled full-access mode.
-			if perms != nil && perms.Mode() == permission.ModeFullAccess {
-				req.Response <- types.ApprovalDecision{Action: types.ApprovalAllowOnce}
+			// unless in BYPASS mode which the user must explicitly set.
+			if perms != nil && perms.Mode() == permission.ModeBypass {
+				e.Response <- true
 			} else {
-				fmt.Fprintf(stderr, "\nPermission required for %s [%s] -- denied in one-shot mode. Use --bypass to enable full-access mode.\n",
-					req.ToolName, req.RiskLevel)
-				req.Response <- types.ApprovalDecision{Action: types.ApprovalDeny}
+				fmt.Fprintf(stderr, "\nPermission required for %s [%s] -- denied in one-shot mode. Use --bypass to auto-approve.\n",
+					e.ToolName, e.RiskLevel)
+				e.Response <- false
 			}
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			switch e := event.(type) {
-			case *types.TokenEvent:
-				fmt.Fprint(stdout, e.Token)
-			case *types.ToolStartEvent:
-				// In one-shot mode, tool execution is silent (no spinner)
-			case *types.ToolEndEvent:
-				if e.IsError {
-					fmt.Fprintf(stderr, "\nTool error (%s): %s\n", e.Name, e.Content)
-				}
-			case *types.ErrorEvent:
-				fmt.Fprintf(stderr, "\nError: %v\n", e.Err)
-			case *types.DoneEvent:
-				fmt.Fprintln(stdout) // Final newline
-				return
-			}
+		case *types.ErrorEvent:
+			fmt.Fprintf(stderr, "\nError: %v\n", e.Err)
+		case *types.DoneEvent:
+			fmt.Fprintln(stdout) // Final newline
+			return
 		}
 	}
 }

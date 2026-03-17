@@ -1,0 +1,8 @@
+./auxiliary.go
+./auxiliary_go123.go
+./big_query_read_client.go
+./big_query_write_client.go
+./doc.go
+./helpers.go
+./info.go
+./version.go

@@ -2,179 +2,29 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/permission"
 )
 
 // StatusModel renders the status bar at the bottom of the TUI.
 type StatusModel struct {
-	modelName        string
-	mode             permission.Mode
-	toolName         string    // Non-empty when a tool is executing
-	width            int
-	message          string    // Transient status message
-	messageSetAt     time.Time // When the message was set (for auto-expire)
-	gitBranch        string
-	cwd              string
-	cost             float64
-	dailyBudget      float64 // Daily budget for warning display
-	pendingApproval  bool    // True when awaiting user approval
-	promptTokens     int32
-	completionTokens int32
-	totalTokens      int32
-	lastPromptTokens int32 // Most recent prompt tokens = current context usage
-}
-
-// friendlyModelName converts raw model IDs to human-readable names.
-// e.g. "gemini-3-flash-preview" → "Gemini 3 (Flash)"
-//      "claude-opus-4-6"        → "Opus 4.6"
-//      "gpt-4o-mini"            → "GPT-4o Mini"
-func friendlyModelName(raw string) string {
-	s := strings.ToLower(raw)
-	// Strip common prefixes/suffixes
-	s = strings.TrimPrefix(s, "models/")
-
-	switch {
-	// Gemini models
-	case strings.Contains(s, "gemini"):
-		return parseGemini(s)
-	// Claude models
-	case strings.Contains(s, "claude") || strings.Contains(s, "opus") ||
-		strings.Contains(s, "sonnet") || strings.Contains(s, "haiku"):
-		return parseClaude(s)
-	// GPT models
-	case strings.Contains(s, "gpt"):
-		return parseGPT(s)
-	default:
-		return raw
-	}
-}
-
-func parseGemini(s string) string {
-	// Extract version: gemini-3, gemini-2.5, gemini-1.5
-	var version, variant string
-	for _, v := range []string{"3.1", "3", "2.5", "2.0", "1.5", "1.0"} {
-		if strings.Contains(s, "gemini-"+v) || strings.Contains(s, "gemini_"+v) {
-			version = v
-			break
-		}
-	}
-	if version == "" {
-		return "Gemini"
-	}
-
-	// Detect variant
-	switch {
-	case strings.Contains(s, "ultra"):
-		variant = "Ultra"
-	case strings.Contains(s, "pro"):
-		variant = "Pro"
-	case strings.Contains(s, "flash-lite") || strings.Contains(s, "flash_lite"):
-		variant = "Flash Lite"
-	case strings.Contains(s, "flash"):
-		variant = "Flash"
-	case strings.Contains(s, "nano"):
-		variant = "Nano"
-	}
-
-	name := "Gemini " + version
-	if variant != "" {
-		name += " (" + variant + ")"
-	}
-	return name
-}
-
-func parseClaude(s string) string {
-	// claude-opus-4-6 → Opus 4.6, claude-sonnet-4-5 → Sonnet 4.5
-	var family, version string
-	for _, f := range []string{"opus", "sonnet", "haiku"} {
-		if strings.Contains(s, f) {
-			family = strings.ToUpper(f[:1]) + f[1:]
-			break
-		}
-	}
-	if family == "" {
-		return "Claude"
-	}
-
-	// Find version digits after the family name
-	parts := strings.Split(s, "-")
-	for i, p := range parts {
-		if p == strings.ToLower(family) && i+1 < len(parts) {
-			major := parts[i+1]
-			if i+2 < len(parts) {
-				minor := parts[i+2]
-				// Skip non-numeric suffixes like "20251001"
-				if len(minor) <= 2 {
-					version = major + "." + minor
-				} else {
-					version = major
-				}
-			} else {
-				version = major
-			}
-			break
-		}
-	}
-
-	if version != "" {
-		return family + " " + version
-	}
-	return family
-}
-
-func parseGPT(s string) string {
-	switch {
-	case strings.Contains(s, "gpt-4o-mini"):
-		return "GPT-4o Mini"
-	case strings.Contains(s, "gpt-4o"):
-		return "GPT-4o"
-	case strings.Contains(s, "gpt-4-turbo"):
-		return "GPT-4 Turbo"
-	case strings.Contains(s, "gpt-4"):
-		return "GPT-4"
-	case strings.Contains(s, "gpt-3.5"):
-		return "GPT-3.5"
-	default:
-		return strings.ToUpper(s[:3]) + s[3:]
-	}
-}
-
-// contextWindowSize returns the context window size for known models.
-func contextWindowSize(model string) int32 {
-	s := strings.ToLower(model)
-	switch {
-	// Gemini
-	case strings.Contains(s, "gemini-1.5-pro"):
-		return 2_000_000
-	case strings.Contains(s, "gemini"):
-		return 1_000_000
-	// Claude
-	case strings.Contains(s, "claude"), strings.Contains(s, "opus"),
-		strings.Contains(s, "sonnet"), strings.Contains(s, "haiku"):
-		return 200_000
-	// OpenAI
-	case strings.Contains(s, "gpt-4o"), strings.Contains(s, "gpt-4-turbo"):
-		return 128_000
-	case strings.Contains(s, "o3"), strings.Contains(s, "o1"):
-		return 200_000
-	default:
-		return 200_000 // safe default
-	}
+	modelName string
+	mode      permission.Mode
+	version   string
+	toolName  string // Non-empty when a tool is executing
+	width     int
+	message   string // Transient status message
 }
 
 // NewStatusModel creates a new status bar.
-func NewStatusModel(modelName string, mode permission.Mode) StatusModel {
+func NewStatusModel(modelName, version string, mode permission.Mode) StatusModel {
 	return StatusModel{
 		modelName: modelName,
 		mode:      mode,
+		version:   version,
 	}
 }
 
@@ -183,20 +33,14 @@ func (s *StatusModel) SetMode(mode permission.Mode) {
 	s.mode = mode
 }
 
-// SetModel updates the displayed model name.
-func (s *StatusModel) SetModel(name string) {
-	s.modelName = name
-}
-
 // SetToolName sets the currently executing tool name (empty string to clear).
 func (s *StatusModel) SetToolName(name string) {
 	s.toolName = name
 }
 
-// SetMessage sets a transient status message that auto-expires after 3 seconds.
+// SetMessage sets a transient status message.
 func (s *StatusModel) SetMessage(msg string) {
 	s.message = msg
-	s.messageSetAt = time.Now()
 }
 
 // SetWidth updates the status bar width.
@@ -204,238 +48,59 @@ func (s *StatusModel) SetWidth(width int) {
 	s.width = width
 }
 
-// SetGitBranch sets the git branch display.
-func (s *StatusModel) SetGitBranch(branch string) {
-	s.gitBranch = branch
-}
-
-// SetCwd sets the working directory display.
-func (s *StatusModel) SetCwd(cwd string) {
-	s.cwd = cwd
-}
-
-// SetCost sets the running cost display.
-func (s *StatusModel) SetCost(cost float64) {
-	s.cost = cost
-}
-
-// SetDailyBudget sets the daily budget for cost warning display.
-func (s *StatusModel) SetDailyBudget(budget float64) {
-	s.dailyBudget = budget
-}
-
-// SetPendingApproval sets whether an approval is pending.
-func (s *StatusModel) SetPendingApproval(pending bool) {
-	s.pendingApproval = pending
-}
-
-// AddTokens accumulates token usage from a stream completion.
-// lastPrompt is used as-is for context bar (it reflects current context size).
-func (s *StatusModel) AddTokens(prompt, completion, total int32) {
-	s.promptTokens += prompt
-	s.completionTokens += completion
-	s.totalTokens += total
-	s.lastPromptTokens = prompt // Current context window usage
-}
-
-// formatTokens returns a human-readable token count (e.g., "1.2k", "15.4k").
-func formatTokens(n int32) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
-	}
-	return fmt.Sprintf("%.1fk", float64(n)/1000)
-}
-
-// costColor returns the appropriate color for a BQ cost amount.
-func costColor(cost float64) lipgloss.Style {
-	switch {
-	case cost >= 5.0:
-		return lipgloss.NewStyle().Foreground(dangerColor)
-	case cost >= 1.0:
-		return lipgloss.NewStyle().Foreground(warningColor)
-	default:
-		return lipgloss.NewStyle().Foreground(successColor)
-	}
-}
-
 // View renders the status bar.
-// Layout priority (right-to-left collapse):
-//   ≥100: model  MODE  cost  middle  context  cwd  branch
-//   80-99: model  MODE  cost  middle  context  cwd
-//   60-79: model  MODE  cost  middle
-//   40-59: MODE  cost
-//   <40:   MODE
 func (s StatusModel) View() string {
 	w := s.width
 	if w <= 0 {
 		w = 80
 	}
 
-	// Build segments
-	modelStr := friendlyModelName(s.modelName)
-	if w < 70 {
-		// Truncate to first word at narrow widths
-		if idx := strings.Index(modelStr, " "); idx > 0 {
-			modelStr = modelStr[:idx]
-		}
-	}
-	model := StatusModelStyle.Render(modelStr)
-	mode := ModeBadge(s.mode)
+	// Left: model name
+	left := StatusBarModelStyle.Render(s.modelName)
 
-	// Cost segment: BQ $X.XX · ↑Nk ↓Nk (always visible at ≥40 cols)
-	var costSeg string
-	if s.cost > 0 {
-		bqCost := costColor(s.cost).Render(fmt.Sprintf("BQ $%.2f", s.cost))
-		if s.dailyBudget > 0 && s.cost/s.dailyBudget >= 0.80 {
-			pct := int(s.cost / s.dailyBudget * 100)
-			bqCost = lipgloss.NewStyle().Foreground(warningColor).Render(
-				fmt.Sprintf("BQ $%.2f (%d%%)", s.cost, pct))
-		}
-		if w < 70 {
-			// Abbreviated: drop "BQ" label
-			bqCost = costColor(s.cost).Render(fmt.Sprintf("$%.2f", s.cost))
-		}
-		costSeg = bqCost
-	}
-	// Append LLM token counts if available
-	if s.totalTokens > 0 {
-		tokens := StatusDimStyle.Render(
-			fmt.Sprintf("↑%s ↓%s", formatTokens(s.promptTokens), formatTokens(s.completionTokens)))
-		if costSeg != "" {
-			costSeg += StatusDimStyle.Render(" · ") + tokens
-		} else {
-			costSeg = tokens
-		}
+	// Center: permission mode badge
+	center := modeBadge(s.mode)
+
+	// Right: version or tool status
+	var right string
+	if s.toolName != "" {
+		right = ToolStyle.Render(fmt.Sprintf("executing %s...", s.toolName))
+	} else if s.message != "" {
+		right = s.message
+	} else {
+		right = StatusBarVersionStyle.Render("cascade " + s.version)
 	}
 
-	// Middle: approval > tool > transient message (priority order)
-	var middle string
-	if s.pendingApproval {
-		middle = lipgloss.NewStyle().Foreground(warningColor).Render("● awaiting approval")
-	} else if s.toolName != "" {
-		tn := s.toolName
-		if len(tn) > 20 {
-			tn = tn[:17] + "..."
-		}
-		middle = ToolBulletStyle.Render("~") + " " + tn
-	} else if s.message != "" && time.Since(s.messageSetAt) < 3*time.Second {
-		middle = s.message
+	// Calculate padding
+	leftLen := lipgloss.Width(left)
+	centerLen := lipgloss.Width(center)
+	rightLen := lipgloss.Width(right)
+
+	totalContent := leftLen + centerLen + rightLen
+	if totalContent >= w {
+		// Not enough space, just concatenate with minimal spacing
+		return StatusBarStyle.Width(w).Render(left + " " + center + " " + right)
 	}
 
-	// Context usage bar
-	var context string
-	if s.totalTokens > 0 {
-		ctxSize := contextWindowSize(s.modelName)
-		pct := float64(s.lastPromptTokens) / float64(ctxSize) * 100
-		bar := renderContextBar(pct, 5)
-		pctStr := fmt.Sprintf("%d%%", int(pct))
-		if pct > 0 && pct < 1 {
-			pctStr = "<1%"
-		}
-		context = bar + " " + StatusDimStyle.Render(pctStr)
-	}
+	// Distribute padding evenly
+	remaining := w - totalContent
+	leftPad := remaining / 2
+	rightPad := remaining - leftPad
 
-	// Right side: cwd + git branch
-	var cwdStr, branchStr string
-	if s.cwd != "" {
-		cwdStr = StatusDimStyle.Render(s.cwd)
-	}
-	if s.gitBranch != "" {
-		b := s.gitBranch
-		if len(b) > 15 {
-			b = b[:12] + "..."
-		}
-		branchStr = StatusDimStyle.Render(" " + b)
-	}
-
-	// Assemble based on width tier
-	parts := []string{}
-	if w >= 60 {
-		parts = append(parts, model)
-	}
-	parts = append(parts, mode)
-	if w >= 40 && costSeg != "" {
-		parts = append(parts, costSeg)
-	}
-	if w >= 60 && middle != "" {
-		parts = append(parts, middle)
-	}
-	if w >= 80 && context != "" {
-		parts = append(parts, context)
-	}
-	if w >= 80 && cwdStr != "" {
-		parts = append(parts, cwdStr)
-	}
-	if w >= 100 && branchStr != "" {
-		parts = append(parts, branchStr)
-	}
-
-	content := "  " + strings.Join(parts, "   ")
-	contentWidth := lipgloss.Width(content)
-
-	// Pad to fill width
-	if contentWidth < w {
-		content += strings.Repeat(" ", w-contentWidth)
-	}
-
-	return StatusBarStyle.Width(w).Render(content)
+	bar := left + strings.Repeat(" ", leftPad) + center + strings.Repeat(" ", rightPad) + right
+	return StatusBarStyle.Width(w).Render(bar)
 }
 
-// renderContextBar draws a compact progress bar using block characters.
-// width is the number of cells for the bar (e.g., 5).
-func renderContextBar(pct float64, width int) string {
-	if pct > 100 {
-		pct = 100
-	}
-	filled := int(pct / 100 * float64(width))
-	if filled > width {
-		filled = width
-	}
-
-	// Color shifts: green → yellow → red as context fills
-	var filledColor, emptyColor lipgloss.Style
-	switch {
-	case pct < 50:
-		filledColor = lipgloss.NewStyle().Foreground(successColor)
-	case pct < 80:
-		filledColor = lipgloss.NewStyle().Foreground(warningColor)
+// modeBadge returns the styled badge for the current permission mode.
+func modeBadge(mode permission.Mode) string {
+	switch mode {
+	case permission.ModeConfirm:
+		return ConfirmModeBadge
+	case permission.ModePlan:
+		return PlanModeBadge
+	case permission.ModeBypass:
+		return BypassModeBadge
 	default:
-		filledColor = lipgloss.NewStyle().Foreground(dangerColor)
+		return ConfirmModeBadge
 	}
-	emptyColor = lipgloss.NewStyle().Foreground(inputBorderColor) // Gray-700 — visible on dark bar bg
-
-	bar := filledColor.Render(strings.Repeat("█", filled)) +
-		emptyColor.Render(strings.Repeat("░", width-filled))
-	return bar
-}
-
-// DetectGitBranch runs git to find the current branch name.
-func DetectGitBranch() string {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// ShortenPath replaces $HOME with ~ and truncates the middle if too long.
-func ShortenPath(path string) string {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.HasPrefix(path, home) {
-		path = "~" + path[len(home):]
-	}
-	// Truncate if too long
-	if len(path) > 30 {
-		dir := filepath.Dir(path)
-		base := filepath.Base(path)
-		if len(base) > 25 {
-			return ".../" + base[:22] + "..."
-		}
-		remaining := 30 - len(base) - 4 // ".../" prefix
-		if remaining > 0 && len(dir) > remaining {
-			path = ".../" + dir[len(dir)-remaining:] + "/" + base
-		}
-	}
-	return path
 }

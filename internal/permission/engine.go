@@ -20,7 +20,7 @@ func (d Decision) String() string {
 	case Allow:
 		return "ALLOW"
 	case Confirm:
-		return "ASK"
+		return "CONFIRM"
 	case Deny:
 		return "DENY"
 	default:
@@ -37,9 +37,8 @@ type ToolRiskProvider interface {
 
 // Engine enforces permission policies based on tool risk levels and current mode.
 type Engine struct {
-	mode         Mode
-	cache        map[string]Decision
-	toolPolicies map[string]Decision
+	mode  Mode
+	cache map[string]Decision
 }
 
 // NewEngine creates a permission engine with the given default mode.
@@ -47,7 +46,6 @@ func NewEngine(defaultMode Mode) *Engine {
 	return &Engine{
 		mode:  defaultMode,
 		cache: make(map[string]Decision),
-		toolPolicies: make(map[string]Decision),
 	}
 }
 
@@ -56,19 +54,16 @@ func (e *Engine) Check(tool ToolRiskProvider, input json.RawMessage) Decision {
 	risk := tool.RiskLevel()
 
 	switch e.mode {
-	case ModeReadOnly:
+	case ModePlan:
 		if risk > RiskReadOnly {
 			return Deny
 		}
 		return Allow
 
-	case ModeFullAccess:
+	case ModeBypass:
 		return Allow
 
-	case ModeAsk:
-		if d, ok := e.toolPolicies[tool.Name()]; ok {
-			return d
-		}
+	case ModeConfirm:
 		if risk <= RiskReadOnly {
 			return Allow
 		}
@@ -88,12 +83,6 @@ func (e *Engine) Check(tool ToolRiskProvider, input json.RawMessage) Decision {
 func (e *Engine) CacheDecision(toolName string, input json.RawMessage, decision Decision) {
 	key := cacheKey(toolName, input)
 	e.cache[key] = decision
-}
-
-// CacheToolDecision stores a session-scoped decision for all future invocations
-// of a tool, regardless of input.
-func (e *Engine) CacheToolDecision(toolName string, decision Decision) {
-	e.toolPolicies[toolName] = decision
 }
 
 // SetMode sets the permission mode.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/provider"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // Compile-time interface check

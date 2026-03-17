@@ -27,32 +27,19 @@ type ToolCall struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
-
-	// ThoughtSignature is an opaque token from thinking models (e.g. Gemini 3+).
-	// Must be echoed back in the conversation to satisfy the API contract.
-	ThoughtSignature []byte `json:"-"`
 }
 
 // ToolResult represents the result of a tool execution.
 type ToolResult struct {
 	CallID  string
-	Name    string // function name (e.g., "bash") — required by Vertex AI
 	Content string
 	IsError bool
 }
 
 // Response represents a complete LLM response after streaming finishes.
-// Usage holds token consumption metadata from the LLM.
-type Usage struct {
-	PromptTokens     int32
-	CompletionTokens int32
-	TotalTokens      int32
-}
-
 type Response struct {
 	Text      string
 	ToolCalls []ToolCall
-	Usage     *Usage // nil if provider doesn't report usage
 }
 
 // UserMessage creates a user message with the given content.
@@ -81,12 +68,11 @@ func SystemMessage(content string) Message {
 }
 
 // ToolResultMessage creates a tool result message.
-func ToolResultMessage(callID, name, content string, isError bool) Message {
+func ToolResultMessage(callID, content string, isError bool) Message {
 	return Message{
 		Role: RoleTool,
 		ToolResult: &ToolResult{
 			CallID:  callID,
-			Name:    name,
 			Content: content,
 			IsError: isError,
 		},

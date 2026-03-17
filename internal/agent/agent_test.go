@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/provider"
+	"github.com/cascade-cli/cascade/internal/tools"
+	"github.com/cascade-cli/cascade/pkg/types"
 )
 
 // --- Test helpers ---
@@ -29,9 +29,7 @@ type mockResponse struct {
 	err      error
 }
 
-func (m *multiMockProvider) Model() string {
-	return "mock-model"
-}
+func (m *multiMockProvider) Model() string { return "test-model" }
 
 func (m *multiMockProvider) GenerateStream(_ context.Context, _ []types.Message, _ []provider.Declaration) (*provider.Stream, error) {
 	m.mu.Lock()
@@ -65,8 +63,6 @@ type mockTool struct {
 	riskLevel permission.RiskLevel
 	result    *tools.Result
 	err       error
-	plan      *tools.PermissionPlan
-	planErr   error
 }
 
 func (t *mockTool) Name() string                     { return t.name }
@@ -75,9 +71,6 @@ func (t *mockTool) InputSchema() map[string]any      { return map[string]any{"ty
 func (t *mockTool) RiskLevel() permission.RiskLevel   { return t.riskLevel }
 func (t *mockTool) Execute(_ context.Context, _ json.RawMessage) (*tools.Result, error) {
 	return t.result, t.err
-}
-func (t *mockTool) PlanPermission(_ context.Context, _ json.RawMessage, _ permission.RiskLevel) (*tools.PermissionPlan, error) {
-	return t.plan, t.planErr
 }
 
 // collectEvents creates an event handler that collects all events.
@@ -233,7 +226,7 @@ func TestRunTurn_TextOnly(t *testing.T) {
 		},
 	}
 	registry := tools.NewRegistry()
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -270,39 +263,6 @@ func TestRunTurn_TextOnly(t *testing.T) {
 	}
 }
 
-func TestRunTurn_DoesNotPersistEmptyAssistantTurn(t *testing.T) {
-	mp := &multiMockProvider{
-		responses: []mockResponse{
-			{
-				response: &types.Response{},
-			},
-		},
-	}
-	registry := tools.NewRegistry()
-	perms := permission.NewEngine(permission.ModeAsk)
-	handler, _ := collectEvents(64)
-
-	ag := New(AgentConfig{
-		Provider:     mp,
-		Registry:     registry,
-		Permissions:  perms,
-		MaxToolCalls: 15,
-		Events:       handler,
-	})
-
-	if err := ag.RunTurn(context.Background(), "hi"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	msgs := ag.Session().Messages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected only the user message to be persisted, got %d messages", len(msgs))
-	}
-	if msgs[0].Role != types.RoleUser || msgs[0].Content != "hi" {
-		t.Fatalf("unexpected session messages: %#v", msgs)
-	}
-}
-
 func TestRunTurn_WithToolCall(t *testing.T) {
 	toolInput := json.RawMessage(`{"path":"test.txt"}`)
 	mp := &multiMockProvider{
@@ -329,7 +289,7 @@ func TestRunTurn_WithToolCall(t *testing.T) {
 		riskLevel: permission.RiskReadOnly,
 		result:    &tools.Result{Content: "file contents here"},
 	})
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -389,7 +349,7 @@ func TestRunTurn_UnknownTool(t *testing.T) {
 	}
 
 	registry := tools.NewRegistry()
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -458,10 +418,9 @@ func TestRunTurn_PermissionConfirm(t *testing.T) {
 		riskLevel: permission.RiskDML,
 		result:    &tools.Result{Content: "write successful"},
 	})
-	perms := permission.NewEngine(permission.ModeAsk)
-	approvalCh := make(chan types.ApprovalRequest, 8)
+	perms := permission.NewEngine(permission.ModeConfirm)
 
-	// Use a large buffer and manually handle approval requests.
+	// Use a large buffer and manually handle the permission event
 	eventCh := make(chan types.Event, 256)
 	handler := EventChan(eventCh)
 
@@ -471,7 +430,6 @@ func TestRunTurn_PermissionConfirm(t *testing.T) {
 		Permissions:  perms,
 		MaxToolCalls: 15,
 		Events:       handler,
-		Approvals:    approvalCh,
 	})
 
 	// Run in goroutine since it blocks on permission response
@@ -482,25 +440,22 @@ func TestRunTurn_PermissionConfirm(t *testing.T) {
 		close(done)
 	}()
 
-	// Drain events and auto-approve permission requests.
+	// Drain events and auto-approve permission requests
 	var events []types.Event
-	var approvals []types.ApprovalRequest
 	func() {
 		for {
 			select {
 			case evt := <-eventCh:
 				events = append(events, evt)
-			case req := <-approvalCh:
-				approvals = append(approvals, req)
-				req.Response <- types.ApprovalDecision{Action: types.ApprovalAllowOnce}
+				if pr, ok := evt.(*types.PermissionRequestEvent); ok {
+					pr.Response <- true // Approve
+				}
 			case <-done:
 				// Drain remaining events
 				for {
 					select {
 					case evt := <-eventCh:
 						events = append(events, evt)
-					case req := <-approvalCh:
-						approvals = append(approvals, req)
 					default:
 						return
 					}
@@ -513,11 +468,14 @@ func TestRunTurn_PermissionConfirm(t *testing.T) {
 		t.Fatalf("unexpected error: %v", runErr)
 	}
 
-	if len(approvals) != 1 {
-		t.Fatalf("expected 1 approval request, got %d", len(approvals))
+	var hasPermReq bool
+	for _, evt := range events {
+		if _, ok := evt.(*types.PermissionRequestEvent); ok {
+			hasPermReq = true
+		}
 	}
-	if approvals[0].ToolName != "write_file" {
-		t.Fatalf("expected approval for write_file, got %q", approvals[0].ToolName)
+	if !hasPermReq {
+		t.Error("expected PermissionRequestEvent for DML tool in CONFIRM mode")
 	}
 }
 
@@ -547,7 +505,7 @@ func TestRunTurn_PermissionDeny_PlanMode(t *testing.T) {
 		riskLevel: permission.RiskDML,
 		result:    &tools.Result{Content: "write successful"},
 	})
-	perms := permission.NewEngine(permission.ModeReadOnly) // read-only mode denies writes
+	perms := permission.NewEngine(permission.ModePlan) // PLAN mode denies writes
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -622,7 +580,7 @@ func TestRunTurn_GovernorLimit(t *testing.T) {
 		riskLevel: permission.RiskReadOnly,
 		result:    &tools.Result{Content: "contents"},
 	})
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -656,120 +614,6 @@ func TestRunTurn_GovernorLimit(t *testing.T) {
 	}
 	if !hasDone {
 		t.Error("expected DoneEvent after governor limit")
-	}
-}
-
-func TestRunTurn_PermissionPlannerCanDenyBeforeExecution(t *testing.T) {
-	mp := &multiMockProvider{
-		responses: []mockResponse{
-			{
-				tokens: []string{"Running query."},
-				response: &types.Response{
-					Text: "Running query.",
-					ToolCalls: []types.ToolCall{
-						{ID: "call1", Name: "bigquery_query", Input: json.RawMessage(`{"sql":"SELECT * FROM huge_table"}`)},
-					},
-				},
-			},
-			{
-				tokens:   []string{"The query is too expensive."},
-				response: &types.Response{Text: "The query is too expensive."},
-			},
-		},
-	}
-
-	registry := tools.NewRegistry()
-	registry.Register(&mockTool{
-		name:      "bigquery_query",
-		riskLevel: permission.RiskReadOnly,
-		plan: &tools.PermissionPlan{
-			DenyMessage: "Query blocked: estimated cost $42.00 exceeds maximum $10.00.",
-		},
-		result: &tools.Result{Content: "should not execute"},
-	})
-
-	perms := permission.NewEngine(permission.ModeAsk)
-	handler, collect := collectEvents(256)
-	ag := New(AgentConfig{
-		Provider:     mp,
-		Registry:     registry,
-		Permissions:  perms,
-		MaxToolCalls: 15,
-		Events:       handler,
-	})
-
-	if err := ag.RunTurn(context.Background(), "run an expensive query"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	events := collect()
-	foundBlocked := false
-	for _, evt := range events {
-		if te, ok := evt.(*types.ToolEndEvent); ok && te.IsError && te.Content == "Query blocked: estimated cost $42.00 exceeds maximum $10.00." {
-			foundBlocked = true
-		}
-	}
-	if !foundBlocked {
-		t.Fatal("expected preflight denial ToolEndEvent")
-	}
-}
-
-func TestRunTurn_PermissionPlannerCanEscalateApproval(t *testing.T) {
-	mp := &multiMockProvider{
-		responses: []mockResponse{
-			{
-				tokens: []string{"Running query."},
-				response: &types.Response{
-					Text: "Running query.",
-					ToolCalls: []types.ToolCall{
-						{ID: "call1", Name: "bigquery_query", Input: json.RawMessage(`{"sql":"SELECT * FROM medium_table"}`)},
-					},
-				},
-			},
-			{
-				tokens:   []string{"done"},
-				response: &types.Response{Text: "done"},
-			},
-		},
-	}
-
-	registry := tools.NewRegistry()
-	registry.Register(&mockTool{
-		name:      "bigquery_query",
-		riskLevel: permission.RiskReadOnly,
-		plan: func() *tools.PermissionPlan {
-			risk := permission.RiskDML
-			return &tools.PermissionPlan{RiskOverride: &risk}
-		}(),
-		result: &tools.Result{Content: "ok"},
-	})
-
-	perms := permission.NewEngine(permission.ModeAsk)
-	approvalCh := make(chan types.ApprovalRequest, 1)
-	handler, _ := collectEvents(256)
-	ag := New(AgentConfig{
-		Provider:     mp,
-		Registry:     registry,
-		Permissions:  perms,
-		MaxToolCalls: 15,
-		Events:       handler,
-		Approvals:    approvalCh,
-	})
-
-	done := make(chan error, 1)
-	go func() {
-		done <- ag.RunTurn(context.Background(), "run a medium query")
-	}()
-
-	select {
-	case req := <-approvalCh:
-		req.Response <- types.ApprovalDecision{Action: types.ApprovalAllowOnce}
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected approval request for elevated read-only query")
-	}
-
-	if err := <-done; err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -810,7 +654,7 @@ func TestRunTurn_DuplicateDetection(t *testing.T) {
 		riskLevel: permission.RiskReadOnly,
 		result:    &tools.Result{Content: "file data"},
 	})
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -869,7 +713,7 @@ func TestRunTurn_ToolExecutionError(t *testing.T) {
 		result:    nil,
 		err:       fmt.Errorf("file not found"),
 	})
-	perms := permission.NewEngine(permission.ModeAsk)
+	perms := permission.NewEngine(permission.ModeConfirm)
 	handler, collect := collectEvents(256)
 
 	ag := New(AgentConfig{
@@ -909,76 +753,5 @@ func TestRunTurn_ToolExecutionError(t *testing.T) {
 	}
 	if !foundErrorResult {
 		t.Error("expected error result in session for tool failure")
-	}
-}
-
-// slowMockTool sleeps until context is canceled or duration elapses.
-type slowMockTool struct {
-	name     string
-	duration time.Duration
-}
-
-func (t *slowMockTool) Name() string                { return t.name }
-func (t *slowMockTool) Description() string         { return "Slow mock tool" }
-func (t *slowMockTool) InputSchema() map[string]any { return map[string]any{"type": "object"} }
-func (t *slowMockTool) RiskLevel() permission.RiskLevel { return permission.RiskReadOnly }
-func (t *slowMockTool) Execute(ctx context.Context, _ json.RawMessage) (*tools.Result, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(t.duration):
-		return &tools.Result{Content: "done"}, nil
-	}
-}
-
-func TestRunTurn_ToolTimeout(t *testing.T) {
-	// LLM calls a slow tool, then returns text
-	prov := &multiMockProvider{
-		responses: []mockResponse{
-			{
-				tokens: []string{"calling"},
-				response: &types.Response{
-					ToolCalls: []types.ToolCall{
-						{ID: "1", Name: "slow_tool", Input: json.RawMessage(`{}`)},
-					},
-				},
-			},
-			{
-				tokens:   []string{"timed out"},
-				response: &types.Response{Text: "timed out"},
-			},
-		},
-	}
-
-	registry := tools.NewRegistry()
-	registry.Register(&slowMockTool{name: "slow_tool", duration: 5 * time.Second})
-
-	events, collect := collectEvents(64)
-	ag := New(AgentConfig{
-		Provider:     prov,
-		Registry:     registry,
-		Permissions:  permission.NewEngine(permission.ModeFullAccess),
-		MaxToolCalls: 10,
-		ToolTimeout:  1, // 1 second timeout
-		SystemPrompt: "test",
-		Events:       events,
-	})
-
-	err := ag.RunTurn(context.Background(), "run slow tool")
-	if err != nil {
-		t.Fatalf("RunTurn failed: %v", err)
-	}
-
-	evts := collect()
-	// Should see a ToolEndEvent with error (timeout)
-	foundTimeoutError := false
-	for _, evt := range evts {
-		if te, ok := evt.(*types.ToolEndEvent); ok && te.IsError {
-			foundTimeoutError = true
-			break
-		}
-	}
-	if !foundTimeoutError {
-		t.Error("expected ToolEndEvent with error due to timeout")
 	}
 }

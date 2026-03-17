@@ -154,4 +154,47 @@ func TestRetryTransport_NoRetryOn403(t *testing.T) {
 	}
 }
 
-// Legacy NewTokenSource tests removed — superseded by resource_test.go
+func TestNewTokenSource_ADC(t *testing.T) {
+	// We can't actually call GCP in unit tests, but we can verify
+	// the function signature and error message pattern.
+	// This test verifies that NewTokenSource exists and accepts the right args.
+	// Actual ADC will fail since we're not in a GCP environment,
+	// but the error should contain the helpful message.
+	if testing.Short() {
+		t.Skip("skipping ADC test in short mode")
+	}
+
+	// Verify the function exists and has the right signature by calling it.
+	// It will fail because there are no default credentials in CI,
+	// but the error should be descriptive.
+	cfg := &AuthConfig{}
+	_, err := NewTokenSource(t.Context(), cfg)
+	if err == nil {
+		// If it succeeds, we're in a GCP environment -- that's fine too.
+		return
+	}
+
+	// Should contain helpful error message
+	if !strings.Contains(err.Error(), "gcloud auth application-default login") {
+		t.Errorf("error should contain fix instructions, got: %v", err)
+	}
+}
+
+func TestNewTokenSource_Impersonation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping impersonation test in short mode")
+	}
+
+	cfg := &AuthConfig{
+		ImpersonateServiceAccount: "test@project.iam.gserviceaccount.com",
+	}
+	_, err := NewTokenSource(t.Context(), cfg)
+	if err == nil {
+		return // Surprising but acceptable in a real GCP environment
+	}
+
+	// Error should mention the service account
+	if !strings.Contains(err.Error(), "test@project.iam.gserviceaccount.com") {
+		t.Errorf("error should mention target SA, got: %v", err)
+	}
+}

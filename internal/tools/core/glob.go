@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/tools"
 )
 
 type globInput struct {

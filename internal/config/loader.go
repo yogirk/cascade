@@ -43,9 +43,6 @@ func Load(opts LoadOptions) (*Config, error) {
 	// Layer 4: CLI flags
 	applyFlags(&cfg, opts.Flags)
 
-	// Migrate deprecated [auth] → [gcp.auth]
-	cfg.MigrateLegacy()
-
 	return &cfg, nil
 }
 
@@ -80,9 +77,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("CASCADE_DEFAULT_MODE"); v != "" {
 		cfg.Security.DefaultMode = v
 	}
-	if v := os.Getenv("CASCADE_GCP_PROJECT"); v != "" {
-		cfg.GCP.Project = v
-	}
 }
 
 // applyFlags overrides config with CLI flag values.
@@ -95,8 +89,5 @@ func applyFlags(cfg *Config, flags map[string]string) {
 	}
 	if v, ok := flags["provider"]; ok && v != "" {
 		cfg.Model.Provider = v
-	}
-	if v, ok := flags["project"]; ok && v != "" {
-		cfg.GCP.Project = v
 	}
 }

@@ -10,14 +10,14 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Model.Provider != "" {
-		t.Errorf("expected provider %q, got %q", "", cfg.Model.Provider)
+	if cfg.Model.Provider != "google" {
+		t.Errorf("expected provider %q, got %q", "google", cfg.Model.Provider)
 	}
-	if cfg.Model.Model != "gemini-3-flash-preview" {
-		t.Errorf("expected model %q, got %q", "gemini-3-flash-preview", cfg.Model.Model)
+	if cfg.Model.Model != "gemini-2.5-pro" {
+		t.Errorf("expected model %q, got %q", "gemini-2.5-pro", cfg.Model.Model)
 	}
-	if cfg.Agent.MaxToolCalls != 200 {
-		t.Errorf("expected max_tool_calls %d, got %d", 200, cfg.Agent.MaxToolCalls)
+	if cfg.Agent.MaxToolCalls != 15 {
+		t.Errorf("expected max_tool_calls %d, got %d", 15, cfg.Agent.MaxToolCalls)
 	}
 	if cfg.Agent.ToolTimeout != 120 {
 		t.Errorf("expected tool_timeout %d, got %d", 120, cfg.Agent.ToolTimeout)
@@ -25,8 +25,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Display.Theme != "auto" {
 		t.Errorf("expected theme %q, got %q", "auto", cfg.Display.Theme)
 	}
-	if cfg.Security.DefaultMode != "ask" {
-		t.Errorf("expected default_mode %q, got %q", "ask", cfg.Security.DefaultMode)
+	if cfg.Security.DefaultMode != "confirm" {
+		t.Errorf("expected default_mode %q, got %q", "confirm", cfg.Security.DefaultMode)
 	}
 }
 
@@ -117,8 +117,8 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 
 	// Should return defaults
-	if cfg.Model.Provider != "" {
-		t.Errorf("expected default provider %q, got %q", "", cfg.Model.Provider)
+	if cfg.Model.Provider != "google" {
+		t.Errorf("expected default provider %q, got %q", "google", cfg.Model.Provider)
 	}
 }
 
@@ -217,107 +217,8 @@ func TestLoadInvalidMaxToolCalls(t *testing.T) {
 	}
 
 	// Should keep default when parsing fails
-	if cfg.Agent.MaxToolCalls != 200 {
-		t.Errorf("expected max_tool_calls default %d on parse error, got %d", 200, cfg.Agent.MaxToolCalls)
-	}
-}
-
-func TestLoadLegacyAuthMigration(t *testing.T) {
-	dir := t.TempDir()
-	tomlPath := filepath.Join(dir, "config.toml")
-	err := os.WriteFile(tomlPath, []byte(`
-[auth]
-impersonate_service_account = "sa@project.iam.gserviceaccount.com"
-`), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(LoadOptions{ConfigPath: tomlPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Legacy [auth] should migrate to [gcp.auth]
-	if cfg.GCP.Auth.ImpersonateServiceAccount != "sa@project.iam.gserviceaccount.com" {
-		t.Errorf("expected legacy auth to migrate, got %q", cfg.GCP.Auth.ImpersonateServiceAccount)
-	}
-	if cfg.GCP.Auth.Mode != "impersonation" {
-		t.Errorf("expected mode to auto-set to impersonation, got %q", cfg.GCP.Auth.Mode)
-	}
-}
-
-func TestLoadNewGCPConfig(t *testing.T) {
-	dir := t.TempDir()
-	tomlPath := filepath.Join(dir, "config.toml")
-	err := os.WriteFile(tomlPath, []byte(`
-[gcp]
-project = "my-project"
-location = "us-central1"
-
-[gcp.auth]
-mode = "impersonation"
-impersonate_service_account = "sa@project.iam.gserviceaccount.com"
-
-[model]
-provider = "gemini_api"
-
-[model.gemini_api]
-api_key_env = "MY_GEMINI_KEY"
-`), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(LoadOptions{ConfigPath: tomlPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if cfg.GCP.Project != "my-project" {
-		t.Errorf("expected gcp.project %q, got %q", "my-project", cfg.GCP.Project)
-	}
-	if cfg.GCP.Location != "us-central1" {
-		t.Errorf("expected gcp.location %q, got %q", "us-central1", cfg.GCP.Location)
-	}
-	if cfg.GCP.Auth.Mode != "impersonation" {
-		t.Errorf("expected gcp.auth.mode %q, got %q", "impersonation", cfg.GCP.Auth.Mode)
-	}
-	if cfg.Model.Provider != "gemini_api" {
-		t.Errorf("expected model.provider %q, got %q", "gemini_api", cfg.Model.Provider)
-	}
-	if cfg.Model.GeminiAPI.APIKeyEnv != "MY_GEMINI_KEY" {
-		t.Errorf("expected model.gemini_api.api_key_env %q, got %q", "MY_GEMINI_KEY", cfg.Model.GeminiAPI.APIKeyEnv)
-	}
-}
-
-func TestLoadGCPProjectEnvOverride(t *testing.T) {
-	t.Setenv("CASCADE_GCP_PROJECT", "env-project")
-
-	cfg, err := Load(LoadOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if cfg.GCP.Project != "env-project" {
-		t.Errorf("expected gcp.project %q from env, got %q", "env-project", cfg.GCP.Project)
-	}
-}
-
-func TestDefaultConfigAPIKeyEnvs(t *testing.T) {
-	cfg := DefaultConfig()
-
-	if cfg.Model.GeminiAPI.APIKeyEnv != "GOOGLE_API_KEY" {
-		t.Errorf("expected default gemini_api.api_key_env %q, got %q", "GOOGLE_API_KEY", cfg.Model.GeminiAPI.APIKeyEnv)
-	}
-	if cfg.Model.OpenAI.APIKeyEnv != "OPENAI_API_KEY" {
-		t.Errorf("expected default openai.api_key_env %q, got %q", "OPENAI_API_KEY", cfg.Model.OpenAI.APIKeyEnv)
-	}
-	if cfg.Model.Anthropic.APIKeyEnv != "ANTHROPIC_API_KEY" {
-		t.Errorf("expected default anthropic.api_key_env %q, got %q", "ANTHROPIC_API_KEY", cfg.Model.Anthropic.APIKeyEnv)
-	}
-	if cfg.GCP.Auth.Mode != "adc" {
-		t.Errorf("expected default gcp.auth.mode %q, got %q", "adc", cfg.GCP.Auth.Mode)
+	if cfg.Agent.MaxToolCalls != 15 {
+		t.Errorf("expected max_tool_calls default %d on parse error, got %d", 15, cfg.Agent.MaxToolCalls)
 	}
 }
 

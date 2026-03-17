@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/yogirk/cascade/pkg/types"
+import "github.com/cascade-cli/cascade/pkg/types"
 
 // EventHandler receives agent events. TUI and one-shot mode implement this.
 type EventHandler interface {

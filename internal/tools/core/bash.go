@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/tools"
 )
 
 type bashInput struct {
@@ -39,18 +39,9 @@ func (t *BashTool) InputSchema() map[string]any {
 }
 
 // RiskLevel returns the default risk level for bash (DESTRUCTIVE).
-// PlanPermission refines this based on the actual command.
+// The agent loop should call ClassifyBashRisk with the actual command
+// before checking permissions.
 func (t *BashTool) RiskLevel() permission.RiskLevel { return permission.RiskDestructive }
-
-// PlanPermission classifies the actual bash command to determine the real risk level.
-func (t *BashTool) PlanPermission(_ context.Context, input json.RawMessage, _ permission.RiskLevel) (*tools.PermissionPlan, error) {
-	var params bashInput
-	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, nil // fall back to default risk
-	}
-	risk := ClassifyBashRisk(params.Command)
-	return &tools.PermissionPlan{RiskOverride: &risk}, nil
-}
 
 func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (*tools.Result, error) {
 	var params bashInput
@@ -130,55 +121,8 @@ func ClassifyBashRisk(command string) permission.RiskLevel {
 		return permission.RiskReadOnly
 	}
 
-	if base == "gcloud" && isReadOnlyGCloud(parts[1:]) {
-		return permission.RiskReadOnly
-	}
-
-	if base == "bq" && isReadOnlyBQ(parts[1:]) {
-		return permission.RiskReadOnly
-	}
-
 	// Unknown commands default to destructive
 	return permission.RiskDestructive
-}
-
-func isReadOnlyGCloud(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-
-	switch args[0] {
-	case "config":
-		return len(args) >= 2 && (args[1] == "get-value" || args[1] == "list")
-	case "projects":
-		return len(args) >= 2 && (args[1] == "describe" || args[1] == "list")
-	case "auth":
-		return len(args) >= 2 && (args[1] == "list" || args[1] == "print-access-token")
-	default:
-		return false
-	}
-}
-
-func isReadOnlyBQ(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-
-	switch args[0] {
-	case "ls", "show", "head":
-		return true
-	case "query":
-		for _, arg := range args[1:] {
-			if strings.HasPrefix(arg, "--destination_table") ||
-				strings.HasPrefix(arg, "--append_table") ||
-				strings.HasPrefix(arg, "--replace") {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
 }
 
 func containsDangerousPattern(command string) bool {

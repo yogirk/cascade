@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/internal/tools/core"
+	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/cascade-cli/cascade/internal/tools"
+	"github.com/cascade-cli/cascade/internal/tools/core"
 )
 
 // Compile-time interface checks: all 6 core tools implement tools.Tool.
@@ -417,10 +417,6 @@ func TestClassifyBashRisk_ReadOnlyCommands(t *testing.T) {
 		{"du -sh .", permission.RiskReadOnly},
 		{"uname -a", permission.RiskReadOnly},
 		{"hostname", permission.RiskReadOnly},
-		{"gcloud config get-value project", permission.RiskReadOnly},
-		{"gcloud projects list", permission.RiskReadOnly},
-		{"bq ls manyminds", permission.RiskReadOnly},
-		{"bq show analytics.users", permission.RiskReadOnly},
 	}
 
 	for _, tc := range cases {
