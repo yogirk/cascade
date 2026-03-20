@@ -171,6 +171,38 @@ func formatArgsSummary(toolName string, input json.RawMessage) []string {
 		if path, ok := args["file_path"].(string); ok {
 			return []string{"file: " + path}
 		}
+	case "bigquery_query":
+		if sqlStr, ok := args["sql"].(string); ok {
+			lines := strings.Split(sqlStr, "\n")
+			if len(lines) <= 6 {
+				var result []string
+				for _, line := range lines {
+					result = append(result, "  "+line)
+				}
+				return result
+			}
+			var result []string
+			for _, line := range lines[:6] {
+				result = append(result, "  "+line)
+			}
+			result = append(result, fmt.Sprintf("  ...%d more lines", len(lines)-6))
+			return result
+		}
+	case "bigquery_schema":
+		if action, ok := args["action"].(string); ok {
+			if tableName, ok := args["table"].(string); ok {
+				return []string{action + ": " + tableName}
+			}
+			return []string{action}
+		}
+	case "bigquery_cost":
+		if sqlStr, ok := args["sql"].(string); ok {
+			truncated := sqlStr
+			if len(truncated) > 60 {
+				truncated = truncated[:57] + "..."
+			}
+			return []string{"sql: " + truncated}
+		}
 	}
 
 	// Generic: show key=value pairs, sorted for consistency

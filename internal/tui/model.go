@@ -41,6 +41,25 @@ type agentDoneMsg struct {
 	err error
 }
 
+// CostTrackerView is the interface for reading cost data in the TUI.
+// Implemented by bigquery.CostTracker; wired in Plan 05.
+type CostTrackerView interface {
+	Entries() []CostEntry
+	SessionTotal() float64
+	BudgetPercent() float64
+	IsOverBudgetWarning() bool
+}
+
+// CostEntry mirrors bigquery.QueryCostEntry for TUI display.
+// Avoids importing internal/bigquery from the TUI package.
+type CostEntry struct {
+	SQL          string
+	BytesScanned int64
+	Cost         float64
+	DurationMs   int64
+	IsDML        bool
+}
+
 // Model is the root Bubble Tea model for the Cascade TUI.
 type Model struct {
 	app           *app.App
@@ -59,6 +78,8 @@ type Model struct {
 	showWelcome     bool
 	lastToolStart   *types.ToolStartEvent
 	preConfirmState UIState // State to restore after confirmation
+	costTracker     CostTrackerView // BigQuery cost tracker (nil until wired)
+	dailyBudget     float64         // Daily budget from config (for /cost display)
 }
 
 // NewModel creates a new TUI model wired to the given application.
@@ -76,7 +97,7 @@ func NewModel(application *app.App) Model {
 
 	welcome := NewWelcomeModel(modelName, mode, shortCwd, gitBranch)
 
-	return Model{
+	m := Model{
 		app:         application,
 		chat:        NewChatModel(80, 20),
 		input:       NewInputModel(),
@@ -89,6 +110,16 @@ func NewModel(application *app.App) Model {
 		state:       StateIdle,
 		showWelcome: true,
 	}
+
+	// Wire BigQuery cost tracker if BQ is configured
+	if application.BQ != nil && application.BQ.CostTracker != nil {
+		m.SetCostTracker(
+			newCostTrackerAdapter(application.BQ.CostTracker),
+			application.Config.Cost.DailyBudget,
+		)
+	}
+
+	return m
 }
 
 // Init initializes the TUI: start event polling and the render tick.
@@ -413,6 +444,25 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.layout() // recalc since spinner stopped and confirm appeared
 		return m, m.pollEvents()
 
+	case *types.CostUpdateEvent:
+		m.status.SetCost(e.SessionTotal)
+		// Check budget warning
+		if m.costTracker != nil && m.costTracker.IsOverBudgetWarning() {
+			pct := int(m.costTracker.BudgetPercent())
+			m.chat.AddMessage(ChatMessage{
+				Role: "system",
+				Content: fmt.Sprintf("Budget alert: session cost $%.2f has reached %d%% of daily budget",
+					e.SessionTotal, pct),
+			})
+		}
+		return m, m.pollEvents()
+
+	case *types.CompactEvent:
+		m.status.SetMessage("Context compacted")
+		msg := fmt.Sprintf("Context compacted (%s -> compacted)", formatTokens(e.BeforeTokens))
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: msg})
+		return m, m.pollEvents()
+
 	case *types.ErrorEvent:
 		m.chat.AddMessage(ChatMessage{Role: "error", Content: e.Err.Error()})
 		return m, m.pollEvents()
@@ -497,6 +547,44 @@ func indentBlock(s string, margin string) string {
 	return strings.Join(lines, "\n")
 }
 
+// SetCostTracker sets the BigQuery cost tracker for /cost display.
+// Called during app assembly (Plan 05).
+func (m *Model) SetCostTracker(ct CostTrackerView, dailyBudget float64) {
+	m.costTracker = ct
+	m.dailyBudget = dailyBudget
+	m.status.SetDailyBudget(dailyBudget)
+}
+
+// formatBytesSimple formats a byte count as a human-readable string.
+func formatBytesSimple(bytes int64) string {
+	switch {
+	case bytes >= 1<<40:
+		return fmt.Sprintf("%.1f TB", float64(bytes)/float64(1<<40))
+	case bytes >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(1<<30))
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// formatDurationSimple formats a millisecond duration as a human-readable string.
+func formatDurationSimple(ms int64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	secs := float64(ms) / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%.1fs", secs)
+	}
+	mins := int(secs) / 60
+	remSecs := int(secs) % 60
+	return fmt.Sprintf("%dm%ds", mins, remSecs)
+}
+
 // handleSlashCommand processes slash commands entered by the user.
 // Returns a tea.Cmd for commands that need async work (e.g., clipboard).
 func (m *Model) handleSlashCommand(text string) tea.Cmd {
@@ -511,6 +599,9 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /copy           Copy last response",
 			"  /copy-code      Copy last code block",
 			"  /model <name>   Switch LLM model",
+			"  /compact        Compact conversation context",
+			"  /cost           Show session cost breakdown",
+			"  /sync           Refresh schema cache",
 			"",
 			"Shortcuts:",
 			"  Enter           Send message",
@@ -569,6 +660,92 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 
 	case cmd == "/model":
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Current model: " + m.app.Config.Model.Model})
+
+	case cmd == "/compact":
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Compacting context..."})
+		return func() tea.Msg {
+			ctx := context.Background()
+			if err := m.app.Agent.Compact(ctx); err != nil {
+				return ChatMessage{Role: "error", Content: fmt.Sprintf("Compaction failed: %v", err)}
+			}
+			return nil
+		}
+
+	case cmd == "/cost":
+		if m.costTracker == nil {
+			m.chat.AddMessage(ChatMessage{Role: "system", Content: "No queries executed this session."})
+			return nil
+		}
+		entries := m.costTracker.Entries()
+		if len(entries) == 0 {
+			m.chat.AddMessage(ChatMessage{Role: "system", Content: "No queries executed this session."})
+			return nil
+		}
+
+		// Build cost breakdown table
+		var sb strings.Builder
+		sb.WriteString("Session Cost Breakdown\n\n")
+		sb.WriteString(fmt.Sprintf("  %-4s %-40s %-12s %-9s %-8s\n", "#", "Query (truncated)", "Bytes", "Cost", "Time"))
+		sb.WriteString(fmt.Sprintf("  %s %s %s %s %s\n",
+			strings.Repeat("-", 4), strings.Repeat("-", 40), strings.Repeat("-", 12),
+			strings.Repeat("-", 9), strings.Repeat("-", 8)))
+
+		for i, entry := range entries {
+			sqlTrunc := entry.SQL
+			if len(sqlTrunc) > 36 {
+				sqlTrunc = sqlTrunc[:33] + "..."
+			}
+			sqlTrunc = strings.ReplaceAll(sqlTrunc, "\n", " ")
+
+			bytesStr := "(DML)"
+			costStr := "(DML)"
+			if !entry.IsDML {
+				bytesStr = formatBytesSimple(entry.BytesScanned)
+				costStr = fmt.Sprintf("$%.2f", entry.Cost)
+			}
+			timeStr := formatDurationSimple(entry.DurationMs)
+			sb.WriteString(fmt.Sprintf("  %-4d %-40s %-12s %-9s %-8s\n",
+				i+1, sqlTrunc, bytesStr, costStr, timeStr))
+		}
+
+		sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 77)))
+		total := m.costTracker.SessionTotal()
+		sb.WriteString(fmt.Sprintf("  %46s Total: $%.2f\n", "", total))
+
+		// Budget line
+		if m.dailyBudget > 0 {
+			pct := total / m.dailyBudget * 100
+			sb.WriteString(fmt.Sprintf("\n  Budget: $%.2f / $%.2f daily (%.1f%%)", total, m.dailyBudget, pct))
+		}
+
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: sb.String()})
+
+	case cmd == "/sync":
+		if m.app.BQ == nil {
+			m.chat.AddMessage(ChatMessage{Role: "system",
+				Content: "No BigQuery project configured. Set bigquery.project in ~/.cascade/config.toml"})
+			return nil
+		}
+		if len(m.app.Config.BigQuery.Datasets) == 0 {
+			m.chat.AddMessage(ChatMessage{Role: "system",
+				Content: "No datasets configured. Add datasets to [bigquery] section in ~/.cascade/config.toml"})
+			return nil
+		}
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Refreshing schema cache..."})
+		return func() tea.Msg {
+			ctx := context.Background()
+			err := m.app.BQ.Populator.PopulateAll(ctx, m.app.Config.BigQuery.Datasets, nil)
+			if err != nil {
+				m.chat.AddMessage(ChatMessage{Role: "error",
+					Content: fmt.Sprintf("Schema refresh failed: %v", err)})
+				return nil
+			}
+			// Update system prompt with new schema context
+			newPrompt := app.BuildSystemPrompt(m.app.BQ)
+			m.app.Agent.Session().SetSystemPrompt(newPrompt)
+			m.chat.AddMessage(ChatMessage{Role: "system", Content: "Schema cache refreshed"})
+			return nil
+		}
 
 	default:
 		m.chat.AddMessage(ChatMessage{

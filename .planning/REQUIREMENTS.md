@@ -14,7 +14,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **AGNT-03**: User sees a Bubble Tea TUI with Lip Gloss styling, Glamour markdown rendering, syntax-highlighted SQL, and formatted tables
 - [x] **AGNT-04**: Agent uses Google ADK Go with Gemini 2.5 Pro as default LLM, abstracted behind a Provider interface for future model switching
 - [x] **AGNT-05**: User can run Cascade in interactive mode (default) or one-shot mode via `-p` flag for scripting and CI/CD
-- [ ] **AGNT-06**: Agent manages session context with automatic compaction at 80% context window to support long sessions
+- [x] **AGNT-06**: Agent manages session context with automatic compaction at 80% context window to support long sessions
 - [x] **AGNT-07**: Core file tools available: Read, Write, Edit, Glob, Grep, Bash — same capabilities as Claude Code for code operations
 - [ ] **AGNT-08**: Agent explains errors from BigQuery, Composer, and other GCP services in plain language with suggested fixes
 
@@ -30,15 +30,15 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### BigQuery
 
-- [ ] **BQ-01**: User can execute BigQuery SQL queries and see results formatted as readable tables with smart truncation
-- [ ] **BQ-02**: Every query shows estimated cost (bytes scanned + dollar estimate) via dry-run before execution, with user confirmation for expensive queries
-- [ ] **BQ-03**: Schema cache built from INFORMATION_SCHEMA bulk queries, stored in SQLite with FTS5 full-text search, scoped to configured datasets
-- [ ] **BQ-04**: User can explore schema: list datasets, list tables, describe table columns/partitioning/clustering, search columns by name or type via natural language
-- [ ] **BQ-05**: Schema-aware context injection provides relevant table schemas to LLM for SQL generation, filtered by FTS5 relevance (10-20 tables max per call)
-- [ ] **BQ-06**: User can generate SQL from natural language descriptions with ~90% first-attempt accuracy due to schema context
-- [ ] **BQ-07**: Session cost tracking accumulates bytes scanned and LLM token usage with running total display and configurable budget alerts
-- [ ] **BQ-08**: Schema cache refreshes incrementally in background, never blocks startup, with manual refresh via `/sync` command
-- [ ] **BQ-09**: SQL analysis suggests query optimizations: partition filter recommendations, clustering key usage, expensive JOIN identification
+- [x] **BQ-01**: User can execute BigQuery SQL queries and see results formatted as readable tables with smart truncation
+- [x] **BQ-02**: Every query shows estimated cost (bytes scanned + dollar estimate) via dry-run before execution, with user confirmation for expensive queries
+- [x] **BQ-03**: Schema cache built from INFORMATION_SCHEMA bulk queries, stored in SQLite with FTS5 full-text search, scoped to configured datasets
+- [x] **BQ-04**: User can explore schema: list datasets, list tables, describe table columns/partitioning/clustering, search columns by name or type via natural language
+- [x] **BQ-05**: Schema-aware context injection provides relevant table schemas to LLM for SQL generation, filtered by FTS5 relevance (10-20 tables max per call)
+- [x] **BQ-06**: User can generate SQL from natural language descriptions with ~90% first-attempt accuracy due to schema context
+- [x] **BQ-07**: Session cost tracking accumulates bytes scanned and LLM token usage with running total display and configurable budget alerts
+- [x] **BQ-08**: Schema cache refreshes incrementally in background, never blocks startup, with manual refresh via `/sync` command
+- [x] **BQ-09**: SQL analysis suggests query optimizations: partition filter recommendations, clustering key usage, expensive JOIN identification
 
 ### Platform Tools
 
@@ -64,7 +64,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **UX-02**: Project-specific config via `CASCADE.md` file in repo root (like CLAUDE.md) for team context and conventions
 - [ ] **UX-03**: Setup wizard on first run detects GCP project, available datasets, Composer environments, dbt project, and builds initial schema cache
 - [x] **UX-04**: Keyboard shortcuts: Ctrl+C (cancel), Ctrl+B (background), Shift+Tab (cycle permission modes), Ctrl+R (refresh cache), Ctrl+L (clear), Ctrl+D (exit)
-- [ ] **UX-05**: Slash commands: /help, /compact, /plan, /sync, /cost, /failures, /lineage, /profile, /dbt, /config, /clear
+- [ ] **UX-05**: Slash commands: /help, /compact, /plan, /sync, /cost, /failures, /lineage, /profile, /dbt, /config, /clear (basic set done: /help, /clear, /copy, /copy-code, /model; domain commands in later phases)
 - [ ] **UX-06**: Output formats: terminal (default with markdown/syntax highlighting), JSON, CSV, Markdown, quiet — for piping and scripting
 - [ ] **UX-07**: Single static binary distribution via Homebrew, GoReleaser, and `go install` — cross-compiled for linux/darwin/windows x amd64/arm64
 
@@ -125,7 +125,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-03 | Phase 1 | Complete |
 | AGNT-04 | Phase 1 | Complete |
 | AGNT-05 | Phase 1 | Complete |
-| AGNT-06 | Phase 2 | Pending |
+| AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 1 | Complete |
 | AGNT-08 | Phase 3 | Pending |
 | AUTH-01 | Phase 1 | Complete |
@@ -135,15 +135,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-05 | Phase 1 | Complete |
 | AUTH-06 | Phase 4 | Pending |
 | AUTH-07 | Phase 1 | Complete |
-| BQ-01 | Phase 2 | Pending |
-| BQ-02 | Phase 2 | Pending |
-| BQ-03 | Phase 2 | Pending |
-| BQ-04 | Phase 2 | Pending |
-| BQ-05 | Phase 2 | Pending |
-| BQ-06 | Phase 2 | Pending |
-| BQ-07 | Phase 2 | Pending |
-| BQ-08 | Phase 2 | Pending |
-| BQ-09 | Phase 2 | Pending |
+| BQ-01 | Phase 2 | Complete |
+| BQ-02 | Phase 2 | Complete |
+| BQ-03 | Phase 2 | Complete |
+| BQ-04 | Phase 2 | Complete |
+| BQ-05 | Phase 2 | Complete |
+| BQ-06 | Phase 2 | Complete |
+| BQ-07 | Phase 2 | Complete |
+| BQ-08 | Phase 2 | Complete |
+| BQ-09 | Phase 2 | Complete |
 | PLAT-01 | Phase 3 | Pending |
 | PLAT-02 | Phase 3 | Pending |
 | PLAT-03 | Phase 3 | Pending |
@@ -159,8 +159,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UX-01 | Phase 1 | Complete |
 | UX-02 | Phase 6 | Pending |
 | UX-03 | Phase 6 | Pending |
-| UX-04 | Phase 1 | Complete |
-| UX-05 | Phase 6 | Pending |
+| UX-04 | Phase 1, 1.1 | Complete |
+| UX-05 | Phase 1.1, 6 | Partial (basic: /help, /clear, /copy, /model) |
 | UX-06 | Phase 6 | Pending |
 | UX-07 | Phase 6 | Pending |
 | EXT-01 | Phase 5 | Pending |
@@ -175,4 +175,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-16 after roadmap creation*
+*Last updated: 2026-03-20 after Phase 1.1 completion*

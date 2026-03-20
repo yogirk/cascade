@@ -31,3 +31,25 @@ func (s *Session) Messages() []types.Message { return s.messages }
 
 // Len returns the number of messages in the session.
 func (s *Session) Len() int { return len(s.messages) }
+
+// Replace replaces the session messages with a new set (used after compaction).
+// The system prompt is preserved as the first message.
+func (s *Session) Replace(messages []types.Message) {
+	s.messages = make([]types.Message, 0, len(messages)+1)
+	if s.systemPrompt != "" {
+		s.messages = append(s.messages, types.SystemMessage(s.systemPrompt))
+	}
+	s.messages = append(s.messages, messages...)
+}
+
+// SystemPrompt returns the session's system prompt.
+func (s *Session) SystemPrompt() string { return s.systemPrompt }
+
+// SetSystemPrompt updates the system prompt (used for context injection).
+func (s *Session) SetSystemPrompt(prompt string) {
+	s.systemPrompt = prompt
+	// Update the first message if it's a system message
+	if len(s.messages) > 0 && s.messages[0].Role == types.RoleSystem {
+		s.messages[0].Content = prompt
+	}
+}

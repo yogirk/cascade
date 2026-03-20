@@ -59,6 +59,19 @@ type TurnStartEvent struct {
 	Input string // The user's input text
 }
 
+// CompactEvent is emitted when the agent compacts session context.
+type CompactEvent struct {
+	BeforeTokens int32
+	AfterTokens  int32
+}
+
+// CostUpdateEvent is emitted after a BigQuery query to update the TUI cost display.
+type CostUpdateEvent struct {
+	QueryCost    float64 // Cost of this query in dollars
+	SessionTotal float64 // Running session total in dollars
+	BytesScanned int64   // Bytes scanned by this query
+}
+
 // Sealed interface implementations.
 func (e *TokenEvent) agentEvent()             {}
 func (e *StreamStartEvent) agentEvent()       {}
@@ -69,3 +82,5 @@ func (e *PermissionRequestEvent) agentEvent() {}
 func (e *ErrorEvent) agentEvent()             {}
 func (e *DoneEvent) agentEvent()              {}
 func (e *TurnStartEvent) agentEvent()         {}
+func (e *CompactEvent) agentEvent()           {}
+func (e *CostUpdateEvent) agentEvent()        {}

@@ -28,13 +28,13 @@ func BuildSchemaContext(cache *Cache, query string, maxTables int) (string, erro
 	b.WriteString("## Available Tables\n\n")
 
 	for _, ref := range refs {
-		detail, err := cache.GetTableDetail(ref.ProjectID, ref.DatasetID, ref.TableID)
+		detail, err := cache.GetTableDetail(ref.DatasetID, ref.TableID)
 		if err != nil {
 			continue // Skip tables that can't be retrieved.
 		}
 
-		// Header: project.dataset.table_name (fully qualified)
-		fmt.Fprintf(&b, "### `%s.%s.%s`\n", ref.ProjectID, ref.DatasetID, ref.TableID)
+		// Header: dataset.table_name
+		fmt.Fprintf(&b, "### %s.%s\n", ref.DatasetID, ref.TableID)
 
 		// Metadata line.
 		fmt.Fprintf(&b, "Type: %s", detail.TableType)
@@ -102,23 +102,17 @@ func BuildDatasetSummary(cache *Cache) (string, error) {
 		return "No datasets cached.", nil
 	}
 
-	// Group by project for multi-project display.
-	projectDatasets := make(map[string][]DatasetInfo)
-	for _, d := range datasets {
-		projectDatasets[d.ProjectID] = append(projectDatasets[d.ProjectID], d)
-	}
-
 	var b strings.Builder
-	for projectID, dsList := range projectDatasets {
-		fmt.Fprintf(&b, "Project: %s\n", projectID)
-		b.WriteString("Datasets: ")
-		parts := make([]string, len(dsList))
-		for i, d := range dsList {
-			parts[i] = fmt.Sprintf("%s (%d tables, %s)", d.DatasetID, d.TableCount, bq.FormatBytes(d.TotalBytes))
-		}
-		b.WriteString(strings.Join(parts, ", "))
-		b.WriteString("\n")
+	if len(datasets) > 0 {
+		fmt.Fprintf(&b, "Project: %s\n", datasets[0].ProjectID)
 	}
+	b.WriteString("Datasets: ")
+
+	parts := make([]string, len(datasets))
+	for i, d := range datasets {
+		parts[i] = fmt.Sprintf("%s (%d tables, %s)", d.DatasetID, d.TableCount, bq.FormatBytes(d.TotalBytes))
+	}
+	b.WriteString(strings.Join(parts, ", "))
 
 	return b.String(), nil
 }

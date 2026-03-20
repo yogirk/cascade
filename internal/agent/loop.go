@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	bq "github.com/yogirk/cascade/internal/bigquery"
 	"github.com/yogirk/cascade/internal/permission"
 	"github.com/yogirk/cascade/internal/provider"
 	"github.com/yogirk/cascade/internal/tools"
@@ -15,13 +16,14 @@ import (
 // Agent drives the observe-reason-act conversation cycle.
 // It connects the LLM provider, tool registry, and permission engine.
 type Agent struct {
-	provider    provider.Provider
-	registry    *tools.Registry
-	permissions *permission.Engine
-	governor    *Governor
-	session     *Session
-	events      EventHandler
-	maxRetries  int // per tool call error retry, default 2
+	provider         provider.Provider
+	registry         *tools.Registry
+	permissions      *permission.Engine
+	governor         *Governor
+	session          *Session
+	events           EventHandler
+	maxRetries       int // per tool call error retry, default 2
+	lastPromptTokens int32
 }
 
 // AgentConfig holds the configuration for creating a new Agent.
@@ -61,6 +63,17 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 	toolCallCount := 0
 
 	for {
+		// Auto-compact if context window is filling up (>= 80%)
+		if a.lastPromptTokens > 0 && ShouldCompact(a.lastPromptTokens, a.provider.Model(), 80.0) {
+			newMessages, _, err := CompactSession(ctx, a.provider, a.session.Messages(), 6)
+			if err == nil {
+				beforeTokens := a.lastPromptTokens
+				a.session.Replace(newMessages)
+				a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
+				// AfterTokens will be updated on next LLM response
+			}
+		}
+
 		// Check governor limit
 		if a.governor.CheckLimit(toolCallCount) {
 			a.emit(&types.ErrorEvent{Err: fmt.Errorf("reached tool call limit (%d)", a.governor.maxToolCalls)})
@@ -97,6 +110,11 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 		// Wait for all tokens to be forwarded before signaling completion
 		<-tokensDone
+
+		// Track context usage for auto-compaction
+		if response.Usage != nil {
+			a.lastPromptTokens = response.Usage.PromptTokens
+		}
 
 		// Append assistant message to session
 		a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
@@ -156,6 +174,16 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		}
 	}
 
+	// Dynamic risk classification for bigquery_query
+	if call.Name == "bigquery_query" {
+		var input struct {
+			SQL string `json:"sql"`
+		}
+		if err := json.Unmarshal(call.Input, &input); err == nil && input.SQL != "" {
+			riskTool = &dynamicRiskTool{Tool: tool, risk: bq.ClassifySQLRisk(input.SQL)}
+		}
+	}
+
 	// Permission check
 	decision := a.permissions.Check(riskTool, call.Input)
 	switch decision {
@@ -210,6 +238,18 @@ func (a *Agent) emit(event types.Event) {
 	if a.events != nil {
 		a.events.HandleEvent(event)
 	}
+}
+
+// Compact triggers manual session compaction.
+func (a *Agent) Compact(ctx context.Context) error {
+	newMessages, _, err := CompactSession(ctx, a.provider, a.session.Messages(), 6)
+	if err != nil {
+		return err
+	}
+	beforeTokens := a.lastPromptTokens
+	a.session.Replace(newMessages)
+	a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
+	return nil
 }
 
 // Session returns the agent's session for external access.

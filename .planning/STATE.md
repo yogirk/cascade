@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 01-04-PLAN.md (Phase 1 complete)
-last_updated: "2026-03-17T18:34:59.069Z"
-last_activity: 2026-03-17 -- Completed plan 01-04 (TUI, one-shot, CLI)
+status: executing
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-03-20T17:49:06Z"
+last_activity: 2026-03-20 -- Completed 02-05 BigQuery Integration Wiring (Phase 2 complete)
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 7
+  completed_phases: 2
+  total_plans: 12
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -21,35 +21,40 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** A data engineer can diagnose pipeline failures, investigate costs, write queries, and manage their GCP data stack through one conversational interface that understands their warehouse schema, pipeline dependencies, and cost profile.
-**Current focus:** Phase 1: Foundation -- COMPLETE
+**Current focus:** Phase 2: BigQuery Core -- COMPLETE
 
 ## Current Position
 
-Phase: 1 of 6 (Foundation) -- COMPLETE
-Plan: 4 of 4 in current phase (all complete)
-Status: Phase Complete
-Last activity: 2026-03-17 -- Completed plan 01-04 (TUI, one-shot, CLI)
+Phase: 2 of 7 (BigQuery Core) -- COMPLETE
+Plan: 5 of 5 in current phase (all complete)
+Status: Phase 2 complete, ready for Phase 3
+Last activity: 2026-03-20 -- Completed 02-05 BigQuery Integration Wiring
 
-Progress: [██████████] 100%
+Progress: [████████░░] 75% (9 of 12 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 9min
-- Total execution time: 0.63 hours
+- Total plans completed: 10
+- Average duration: ~9min
+- Total execution time: ~1.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Foundation | 4/4 | 38min | 9.5min |
+| 1.1. TUI Excellence | 3/3 | ~35min | ~12min |
+| 2. BigQuery Core | 5/5 | 27min | 5.4min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (10min), 01-02 (7min), 01-03 (7min), 01-04 (14min)
-- Trend: stable
+- Last 5 plans: 01.1-03, 02-01 (10min), 02-02 (4min), 02-03 (5min), 02-04 (4min), 02-05 (4min)
+- Trend: stable, fast
 
 *Updated after each plan completion*
+| Phase 02 P05 | 4min | 2 tasks | 6 files |
+| Phase 02 P04 | 4min | 2 tasks | 6 files |
+| Phase 02 P03 | 5min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -73,18 +78,38 @@ Recent decisions affecting current work:
 - [01-04]: Lip Gloss v2 replaced AdaptiveColor with plain Color values
 - [01-04]: BT v2 View() returns tea.View not string; AltScreen set on View struct
 - [01-04]: Glamour v2 uses WithEnvironmentConfig() instead of WithAutoStyle()
+- [01.1]: Adaptive colors via lipgloss.LightDark() — detect terminal background once at init, choose light/dark variants
+- [01.1]: Removed MouseModeCellMotion to allow native text selection — scrolling via keyboard only
+- [01.1]: Tick loop only runs during streaming (not idle) to save CPU/battery
+- [01.1]: Pre-confirm state saved/restored instead of hardcoded StateStreaming
+- [01.1]: Panic recovery in runAgent prevents silent TUI hangs on provider crashes
+- [01.1]: Input box uses lipgloss.RoundedBorder() instead of manual border construction
+- [01.1]: Confirm prompt wrapped in ConfirmBoxStyle (left accent border) for visual separation
+- [02-01]: Content-bearing FTS5 instead of contentless -- contentless returns NULL for stored columns in search
+- [02-01]: SQL prefix classification modeled on ClassifyBashRisk pattern -- strip comments, uppercase first keyword
+- [02-01]: Cost tracker negative cost (-1) signals DML where BigQuery dry-run cannot estimate
+- [02-02]: Keep last 6 messages intact during compaction (recentKeep=6) for sufficient recent context
+- [02-02]: Compaction summary injected as system message rather than user message to avoid confusing the LLM
+- [02-02]: Auto-compaction threshold at 80% matches status bar color shift to red
+- [Phase 02]: CostTrackerView interface in tui package avoids importing internal/bigquery directly
+- [Phase 02]: DDL badge uses warningColor (amber) to differentiate from DESTRUCTIVE (red)
+- [Phase 02]: BQ tools use constructor injection for dependencies (client, cache, costTracker, costConfig) unlike core.RegisterAll
+- [Phase 02]: Render functions return dual output (display, content) for TUI styled vs plain text for LLM
+- [02-05]: Refactored buildClientConfig to return oauth2.TokenSource for BQ client reuse (avoids duplicate credentials)
+- [02-05]: bqClientAdapter bridges bq.Client.RunQuery concrete return to schema.RowIterator interface
+- [02-05]: costTrackerAdapter in tui package bridges bigquery.CostTracker to CostTrackerView without cross-import
+- [02-05]: Lazy cache build fires as background goroutine on startup when datasets configured
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
-- [Research]: ADK Go v0.6.0 is early-stage -- prototype agent loop + TUI integration before Phase 1 planning locks design
-- [Research]: Charm v2 Cursed Renderer streaming behavior needs validation against ring buffer + render tick architecture
+None — Phase 2 complete, ready for Phase 3.
 
 ## Session Continuity
 
-Last session: 2026-03-17T18:11:40Z
-Stopped at: Completed 01-04-PLAN.md (Phase 1 complete)
-Resume file: Phase 2 planning
+Last session: 2026-03-20T17:49:06Z
+Stopped at: Completed 02-05-PLAN.md (Phase 2 complete)
+Resume file: None

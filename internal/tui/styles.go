@@ -155,12 +155,50 @@ var (
 			BorderStyle(lipgloss.ThickBorder()).
 			BorderForeground(warningColor).
 			PaddingLeft(1)
+
+	// Phase 2: BigQuery-specific styles
+
+	// QueryTableHeaderStyle styles column headers in query result tables.
+	QueryTableHeaderStyle = lipgloss.NewStyle().
+				Foreground(accentColor).
+				Bold(true)
+
+	// QueryTableCellStyle styles data cells in query result tables.
+	QueryTableCellStyle = lipgloss.NewStyle().
+				Foreground(textColor)
+
+	// QueryTableNullStyle styles NULL values in query result tables.
+	QueryTableNullStyle = lipgloss.NewStyle().
+				Foreground(dimTextColor).
+				Italic(true)
+
+	// CostSafeStyle styles cost amounts below the warn threshold.
+	CostSafeStyle = lipgloss.NewStyle().
+			Foreground(successColor)
+
+	// CostWarnStyle styles cost amounts between warn and max thresholds.
+	CostWarnStyle = lipgloss.NewStyle().
+			Foreground(warningColor)
+
+	// CostDangerStyle styles cost amounts above the max threshold.
+	CostDangerStyle = lipgloss.NewStyle().
+			Foreground(dangerColor)
+
+	// SchemaHeaderStyle styles table/dataset name headers in schema output.
+	SchemaHeaderStyle = lipgloss.NewStyle().
+				Foreground(brightColor).
+				Bold(true)
+
+	// SchemaAnnotationStyle styles partition/cluster annotations.
+	SchemaAnnotationStyle = lipgloss.NewStyle().
+				Foreground(accentColor)
 )
 
 // Pre-computed badge strings (avoid allocating styles on every render).
 var (
 	riskReadBadge        = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")
 	riskDMLBadge         = lipgloss.NewStyle().Foreground(warningColor).Render("[DML]")
+	riskDDLBadge         = lipgloss.NewStyle().Foreground(warningColor).Render("[DDL]")
 	riskDestructiveBadge = lipgloss.NewStyle().Foreground(dangerColor).Render("[DESTRUCTIVE]")
 
 	modeConfirmBadge = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render("CONFIRM")
@@ -175,7 +213,9 @@ func RiskBadge(riskLevel string) string {
 		return riskReadBadge
 	case "DML":
 		return riskDMLBadge
-	case "DESTRUCTIVE", "DDL", "ADMIN":
+	case "DDL":
+		return riskDDLBadge
+	case "DESTRUCTIVE", "ADMIN":
 		return riskDestructiveBadge
 	default:
 		return riskDMLBadge
@@ -195,6 +235,10 @@ func ToolBullet(toolName string) string {
 		return ToolBulletWriteStyle.Render("∞")
 	case "bash":
 		return ToolBulletExecStyle.Render("∞")
+	case "bigquery_schema", "bigquery_cost":
+		return ToolBulletReadStyle.Render("∞") // Green -- read-only
+	case "bigquery_query":
+		return ToolBulletStyle.Render("∞") // Amber -- default tool color (can write)
 	default:
 		return ToolBulletStyle.Render("∞")
 	}

@@ -30,6 +30,7 @@ type App struct {
 	Provider    provider.Provider
 	Permissions *permission.Engine
 	Events      chan types.Event
+	BQ          *BigQueryComponents // nil if BQ not configured
 }
 
 // New creates a fully-wired App from the given configuration.
@@ -43,7 +44,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		}
 	}
 
-	clientConfig, err := buildClientConfig(ctx, cfg)
+	clientConfig, ts, err := buildClientConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +58,21 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// Tools
 	registry := tools.NewRegistry()
 	core.RegisterAll(registry)
+
+	// BigQuery (optional -- graceful if not configured)
+	var bqComp *BigQueryComponents
+	if ts != nil {
+		// Vertex provider has a token source; reuse it for BQ
+		bqComp, err = initBigQuery(ctx, cfg, ts)
+		if err != nil {
+			// Log warning but don't fail -- BQ is optional
+			fmt.Fprintf(os.Stderr, "Warning: BigQuery init failed: %v\n", err)
+			bqComp = nil
+		}
+	}
+
+	// Register BQ tools alongside core tools
+	registerBQTools(registry, bqComp, &cfg.Cost)
 
 	// Permissions
 	defaultMode := permission.ModeConfirm
@@ -77,9 +93,14 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Registry:     registry,
 		Permissions:  perms,
 		MaxToolCalls: cfg.Agent.MaxToolCalls,
-		SystemPrompt: systemPrompt,
+		SystemPrompt: BuildSystemPrompt(bqComp),
 		Events:       agent.EventChan(events),
 	})
+
+	// Trigger lazy cache build if datasets are configured
+	if bqComp != nil && len(cfg.BigQuery.Datasets) > 0 {
+		bqComp.EnsureCachePopulated(ctx, cfg.BigQuery.Datasets, events)
+	}
 
 	return &App{
 		Config:      cfg,
@@ -87,22 +108,25 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Provider:    prov,
 		Permissions: perms,
 		Events:      events,
+		BQ:          bqComp,
 	}, nil
 }
 
 // buildClientConfig creates the GenAI client config based on the provider type.
-func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientConfig, error) {
+// For the vertex provider, it also returns the oauth2.TokenSource so it can be
+// reused for BigQuery (avoids creating duplicate credentials).
+func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientConfig, oauth2.TokenSource, error) {
 	switch cfg.Model.Provider {
 	case "gemini":
 		// AI Studio: uses GOOGLE_API_KEY, no project/OAuth needed
 		apiKey := os.Getenv("GOOGLE_API_KEY")
 		if apiKey == "" {
-			return nil, fmt.Errorf("GOOGLE_API_KEY env var required for gemini provider")
+			return nil, nil, fmt.Errorf("GOOGLE_API_KEY env var required for gemini provider")
 		}
 		return &genai.ClientConfig{
 			Backend: genai.BackendGeminiAPI,
 			APIKey:  apiKey,
-		}, nil
+		}, nil, nil
 
 	case "vertex":
 		// Vertex AI: uses OAuth + GCP project
@@ -110,7 +134,7 @@ func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientCo
 			ImpersonateServiceAccount: cfg.Auth.ImpersonateServiceAccount,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("auth setup failed: %w", err)
+			return nil, nil, fmt.Errorf("auth setup failed: %w", err)
 		}
 
 		clientConfig := &genai.ClientConfig{
@@ -119,7 +143,7 @@ func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientCo
 			Project:    cfg.Model.Project,
 		}
 
-		// Auto-detect project if missing: ADC creds → env var → gcloud config
+		// Auto-detect project if missing: ADC creds -> env var -> gcloud config
 		if clientConfig.Project == "" {
 			if creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform"); err == nil && creds.ProjectID != "" {
 				clientConfig.Project = creds.ProjectID
@@ -129,17 +153,17 @@ func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientCo
 			clientConfig.Project = detectGCPProject()
 		}
 		if clientConfig.Project == "" {
-			return nil, fmt.Errorf("no GCP project found: set --project flag, GOOGLE_CLOUD_PROJECT env var, or run 'gcloud config set project <id>'")
+			return nil, nil, fmt.Errorf("no GCP project found: set --project flag, GOOGLE_CLOUD_PROJECT env var, or run 'gcloud config set project <id>'")
 		}
 
 		if cfg.Model.Location != "" {
 			clientConfig.Location = cfg.Model.Location
 		}
 
-		return clientConfig, nil
+		return clientConfig, ts, nil
 
 	default:
-		return nil, fmt.Errorf("unknown provider %q: use \"gemini\" (API key) or \"vertex\" (GCP)", cfg.Model.Provider)
+		return nil, nil, fmt.Errorf("unknown provider %q: use \"gemini\" (API key) or \"vertex\" (GCP)", cfg.Model.Provider)
 	}
 }
 
@@ -160,4 +184,4 @@ func detectGCPProject() string {
 	return ""
 }
 
-const systemPrompt = `You are Cascade, an AI assistant for GCP data engineering. You help users diagnose pipeline failures, investigate costs, write queries, and manage their GCP data stack through conversational interaction.`
+// systemPrompt moved to prompt.go as baseSystemPrompt; dynamic version built by BuildSystemPrompt.

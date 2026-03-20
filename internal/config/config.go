@@ -9,6 +9,24 @@ type Config struct {
 	Agent    AgentConfig    `toml:"agent"`
 	Display  DisplayConfig  `toml:"display"`
 	Security SecurityConfig `toml:"security"`
+	BigQuery BigQueryConfig `toml:"bigquery"`
+	Cost     CostConfig     `toml:"cost"`
+}
+
+// BigQueryConfig configures the BigQuery connection.
+type BigQueryConfig struct {
+	Project  string   `toml:"project"`  // GCP project ID (auto-detected if empty)
+	Location string   `toml:"location"` // BQ dataset location (default: "US")
+	Datasets []string `toml:"datasets"` // Dataset IDs to cache (required for schema cache)
+}
+
+// CostConfig configures cost estimation and budget alerts.
+type CostConfig struct {
+	PricePerTB     float64 `toml:"price_per_tb"`     // Default: 6.25 (on-demand US)
+	WarnThreshold  float64 `toml:"warn_threshold"`   // Dollar amount to warn (default: 1.0)
+	MaxQueryCost   float64 `toml:"max_query_cost"`   // Dollar amount to block (default: 10.0)
+	DailyBudget    float64 `toml:"daily_budget_usd"` // Daily budget for alerts (default: 100.0)
+	MaxDisplayRows int     `toml:"max_display_rows"` // Max rows in result table (default: 50)
 }
 
 // ModelConfig configures the LLM provider and model.
@@ -57,6 +75,16 @@ func DefaultConfig() Config {
 		},
 		Security: SecurityConfig{
 			DefaultMode: "confirm",
+		},
+		BigQuery: BigQueryConfig{
+			Location: "US",
+		},
+		Cost: CostConfig{
+			PricePerTB:     6.25,
+			WarnThreshold:  1.0,
+			MaxQueryCost:   10.0,
+			DailyBudget:    100.0,
+			MaxDisplayRows: 50,
 		},
 	}
 }

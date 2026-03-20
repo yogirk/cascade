@@ -29,12 +29,15 @@ var thinkingMessages = []string{
 
 // toolMessages maps tool names to descriptive action messages.
 var toolMessages = map[string]string{
-	"bash":  "Executing command...",
-	"read":  "Reading file...",
-	"write": "Writing file...",
-	"edit":  "Applying edits...",
-	"grep":  "Searching code...",
-	"glob":  "Scanning files...",
+	"bash":             "Executing command...",
+	"read":             "Reading file...",
+	"write":            "Writing file...",
+	"edit":             "Applying edits...",
+	"grep":             "Searching code...",
+	"glob":             "Scanning files...",
+	"bigquery_query":   "Executing query...",
+	"bigquery_schema":  "Looking up schema...",
+	"bigquery_cost":    "Estimating cost...",
 }
 
 // SpinnerModel wraps a Bubbles spinner with rotating status messages.

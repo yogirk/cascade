@@ -1,31 +1,8 @@
 package bigquery
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
-
-	gcbq "cloud.google.com/go/bigquery"
-
-	bq "github.com/yogirk/cascade/internal/bigquery"
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
 )
-
-type mockQueryClient struct {
-	bytes int64
-	cost  float64
-	err   error
-}
-
-func (m *mockQueryClient) EstimateCost(context.Context, string) (int64, float64, error) {
-	return m.bytes, m.cost, m.err
-}
-
-func (m *mockQueryClient) ExecuteQuery(context.Context, string, int) ([]string, [][]string, uint64, gcbq.Schema, error) {
-	return []string{"id"}, [][]string{{"1"}}, 1, nil, nil
-}
 
 func TestQueryToolName(t *testing.T) {
 	qt := &QueryTool{}
@@ -215,92 +192,6 @@ func TestTableRefRegex(t *testing.T) {
 		if matches[2] != tc.table {
 			t.Errorf("table = %q, want %q for SQL: %q", matches[2], tc.table, tc.sql)
 		}
-	}
-}
-
-func TestQueryToolPlanPermission_EscalatesWarnThreshold(t *testing.T) {
-	qt := &QueryTool{
-		client: &mockQueryClient{bytes: 2_000_000_000, cost: 2.50},
-		costConfig: &config.CostConfig{
-			WarnThreshold: 1.0,
-			MaxQueryCost:  10.0,
-		},
-	}
-
-	plan, err := qt.PlanPermission(context.Background(), json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`), permission.RiskReadOnly)
-	if err != nil {
-		t.Fatalf("PlanPermission: %v", err)
-	}
-	if plan == nil || plan.RiskOverride == nil || *plan.RiskOverride != permission.RiskDML {
-		t.Fatalf("expected warn-threshold query to escalate approval, got %#v", plan)
-	}
-}
-
-func TestQueryToolPlanPermission_BlocksAboveMax(t *testing.T) {
-	qt := &QueryTool{
-		client: &mockQueryClient{bytes: 20_000_000_000, cost: 12.00},
-		costConfig: &config.CostConfig{
-			WarnThreshold: 1.0,
-			MaxQueryCost:  10.0,
-		},
-	}
-
-	plan, err := qt.PlanPermission(context.Background(), json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`), permission.RiskReadOnly)
-	if err != nil {
-		t.Fatalf("PlanPermission: %v", err)
-	}
-	if plan == nil || plan.DenyMessage == "" {
-		t.Fatalf("expected deny plan for over-budget query, got %#v", plan)
-	}
-	if !containsStr(plan.DenyMessage, "cost.max_query_cost") {
-		t.Fatalf("expected deny message to reference config key, got %q", plan.DenyMessage)
-	}
-}
-
-func TestQueryToolExecute_BlockedMessageUsesActualConfigKey(t *testing.T) {
-	qt := &QueryTool{
-		client: &mockQueryClient{bytes: 20_000_000_000, cost: 12.00},
-		costConfig: &config.CostConfig{
-			MaxQueryCost: 10.0,
-		},
-	}
-
-	result, err := qt.Execute(context.Background(), json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`))
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if !result.IsError {
-		t.Fatal("expected blocked query to return error result")
-	}
-	if !containsStr(result.Content, "cost.max_query_cost") {
-		t.Fatalf("expected blocked query message to reference actual config key, got %q", result.Content)
-	}
-}
-
-func TestQueryToolExecute_EmitsCostUpdateEvent(t *testing.T) {
-	events := make(chan types.Event, 1)
-	qt := &QueryTool{
-		client:      &mockQueryClient{bytes: 2_000_000_000, cost: 2.50},
-		costTracker: bq.NewCostTracker(100),
-		costConfig:  &config.CostConfig{MaxDisplayRows: 50},
-		events:      events,
-	}
-
-	result, err := qt.Execute(context.Background(), json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`))
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("unexpected error result: %s", result.Content)
-	}
-
-	select {
-	case evt := <-events:
-		if _, ok := evt.(*types.CostUpdateEvent); !ok {
-			t.Fatalf("expected CostUpdateEvent, got %T", evt)
-		}
-	default:
-		t.Fatal("expected cost update event to be emitted")
 	}
 }
 

@@ -7,10 +7,7 @@ import (
 )
 
 // ClassifySQLRisk classifies the risk level of a SQL statement by parsing
-// the leading keyword after stripping comments and whitespace.
-// CTE-prefixed statements (WITH ... AS (...) <stmt>) are classified by the
-// actual statement keyword after the CTE, not by WITH itself — because
-// BigQuery allows WITH ... INSERT/UPDATE/DELETE/MERGE.
+// the first keyword after stripping comments and whitespace.
 // Unknown statements default to RiskDestructive (assume worst).
 func ClassifySQLRisk(sql string) permission.RiskLevel {
 	normalized := stripSQLComments(strings.TrimSpace(sql))
@@ -22,20 +19,6 @@ func ClassifySQLRisk(sql string) permission.RiskLevel {
 
 	upper := strings.ToUpper(normalized)
 
-	// If statement starts with WITH, skip past CTE blocks to find the real keyword.
-	if hasAnyPrefix(upper, "WITH") {
-		if keyword := findStatementAfterCTE(upper); keyword != "" {
-			upper = keyword
-		}
-		// If we can't parse past the CTE, fall through to classify "WITH" as read-only
-		// (likely a plain WITH ... SELECT).
-	}
-
-	return classifyKeyword(upper)
-}
-
-// classifyKeyword classifies the risk from the leading SQL keyword.
-func classifyKeyword(upper string) permission.RiskLevel {
 	switch {
 	case hasAnyPrefix(upper, "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH"):
 		return permission.RiskReadOnly
@@ -50,90 +33,6 @@ func classifyKeyword(upper string) permission.RiskLevel {
 	default:
 		return permission.RiskDestructive
 	}
-}
-
-// findStatementAfterCTE skips past WITH ... AS (...) blocks (including
-// multiple comma-separated CTEs) and returns the remaining SQL starting
-// from the actual statement keyword (SELECT, INSERT, UPDATE, DELETE, MERGE).
-// Returns "" if it cannot parse the CTE structure.
-func findStatementAfterCTE(upper string) string {
-	i := 0
-	n := len(upper)
-
-	// Skip "WITH" keyword
-	i = skipWord(upper, i)
-	i = skipWhitespace(upper, i)
-
-	for i < n {
-		// Skip CTE name
-		i = skipWord(upper, i)
-		i = skipWhitespace(upper, i)
-
-		// Expect "AS"
-		if i+2 <= n && upper[i:i+2] == "AS" && (i+2 == n || isWhitespaceOrParen(upper[i+2])) {
-			i += 2
-			i = skipWhitespace(upper, i)
-		} else {
-			return ""
-		}
-
-		// Skip the parenthesized CTE body, handling nested parens
-		if i < n && upper[i] == '(' {
-			depth := 0
-			for i < n {
-				if upper[i] == '(' {
-					depth++
-				} else if upper[i] == ')' {
-					depth--
-					if depth == 0 {
-						i++
-						break
-					}
-				}
-				i++
-			}
-			if depth != 0 {
-				return "" // unbalanced parens
-			}
-		} else {
-			return ""
-		}
-
-		i = skipWhitespace(upper, i)
-
-		// If there's a comma, another CTE follows
-		if i < n && upper[i] == ',' {
-			i++
-			i = skipWhitespace(upper, i)
-			continue
-		}
-
-		// Otherwise we've reached the actual statement
-		break
-	}
-
-	if i >= n {
-		return ""
-	}
-	return upper[i:]
-}
-
-func skipWhitespace(s string, i int) int {
-	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
-		i++
-	}
-	return i
-}
-
-func skipWord(s string, i int) int {
-	for i < len(s) && s[i] != ' ' && s[i] != '\t' && s[i] != '\n' && s[i] != '\r' && s[i] != '(' && s[i] != ',' {
-		i++
-	}
-	return i
-}
-
-func isWhitespaceOrParen(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '('
 }
 
 // stripSQLComments removes line comments (--) and block comments (/* */) from SQL.

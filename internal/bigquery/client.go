@@ -59,7 +59,11 @@ func (c *Client) ExecuteQuery(ctx context.Context, sql string, maxRows int) (hea
 		return nil, nil, 0, nil, fmt.Errorf("query read: %w", err)
 	}
 
-	// Read rows first — schema may not be populated until after the first Next() call.
+	// Extract headers from schema.
+	for _, field := range it.Schema {
+		headers = append(headers, field.Name)
+	}
+
 	for i := 0; i < maxRows; i++ {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -67,14 +71,9 @@ func (c *Client) ExecuteQuery(ctx context.Context, sql string, maxRows int) (hea
 			break
 		}
 		if err != nil {
-			return nil, rows, it.TotalRows, it.Schema, fmt.Errorf("row iteration: %w", err)
+			return headers, rows, it.TotalRows, it.Schema, fmt.Errorf("row iteration: %w", err)
 		}
 		rows = append(rows, valuesToStrings(row))
-	}
-
-	// Extract headers from schema (now populated after iteration).
-	for _, field := range it.Schema {
-		headers = append(headers, field.Name)
 	}
 
 	return headers, rows, it.TotalRows, it.Schema, nil

@@ -6,7 +6,8 @@ import "github.com/yogirk/cascade/internal/tools"
 // Unlike core.RegisterAll which creates tools internally, BQ tools require
 // external dependencies (client, cache, cost tracker), so they are
 // pre-constructed and passed in.
-func RegisterAll(registry *tools.Registry, queryTool *QueryTool, schemaTool *SchemaTool) {
+func RegisterAll(registry *tools.Registry, queryTool *QueryTool, schemaTool *SchemaTool, costTool *CostTool) {
 	registry.Register(queryTool)
 	registry.Register(schemaTool)
+	registry.Register(costTool)
 }

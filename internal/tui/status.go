@@ -22,7 +22,8 @@ type StatusModel struct {
 	gitBranch        string
 	cwd              string
 	cost             float64
-	pendingApproval  bool // True when awaiting user approval
+	dailyBudget      float64 // Daily budget for warning display
+	pendingApproval  bool    // True when awaiting user approval
 	promptTokens     int32
 	completionTokens int32
 	totalTokens      int32
@@ -92,6 +93,11 @@ func (s *StatusModel) SetCost(cost float64) {
 	s.cost = cost
 }
 
+// SetDailyBudget sets the daily budget for cost warning display.
+func (s *StatusModel) SetDailyBudget(budget float64) {
+	s.dailyBudget = budget
+}
+
 // SetPendingApproval sets whether an approval is pending.
 func (s *StatusModel) SetPendingApproval(pending bool) {
 	s.pendingApproval = pending
@@ -135,7 +141,15 @@ func (s StatusModel) View() string {
 	} else if s.message != "" {
 		middle = s.message
 	} else if s.cost > 0 {
-		middle = StatusDimStyle.Render(fmt.Sprintf("$%.2f", s.cost))
+		costStr := fmt.Sprintf("$%.2f", s.cost)
+		if s.dailyBudget > 0 && s.cost/s.dailyBudget >= 0.80 {
+			// Budget warning: amber color with percentage
+			pct := int(s.cost / s.dailyBudget * 100)
+			middle = lipgloss.NewStyle().Foreground(warningColor).Render(
+				fmt.Sprintf("%s (%d%% budget)", costStr, pct))
+		} else {
+			middle = StatusDimStyle.Render(costStr)
+		}
 	}
 
 	// Context usage bar + token counts

@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Working conversational agent with GCP auth, permissions, TUI, and core file tools (completed 2026-03-17)
 - [x] **Phase 1.1: TUI Excellence** - Claude Code/Codex-grade terminal experience for conversation flow, tool UX, approvals, and operational clarity (completed 2026-03-20)
-- [ ] **Phase 2: BigQuery Core** - Schema-aware data surface with query execution, cost estimation, and NL-to-SQL
+- [ ] **Phase 2: BigQuery Core** - Schema-aware data surface with query execution, cost estimation, and NL-to-SQL (gap closure in progress)
 - [ ] **Phase 3: Platform Tools** - GCP operational surface with Composer, Logging, GCS, and cross-service debugging
 - [ ] **Phase 4: Data Engineering** - dbt integration, data profiling, SQL analysis, platform summary, PII detection, and offline mode
 - [ ] **Phase 5: Extensibility** - Skills, hooks, subagents, and MCP integration for team customization
@@ -50,14 +50,16 @@ Plans:
   3. User can describe a query in natural language and receive accurate SQL that references correct table and column names from their warehouse
   4. User can see a running session cost total (BigQuery bytes + LLM tokens) and receives alerts when approaching configured budget limits
   5. Schema cache refreshes in the background without blocking the session, and user can force refresh via `/sync`
-**Plans**: 5 plans
+**Plans**: 7 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Config extensions, BQ client, SQL classifier, schema cache (SQLite+FTS5), cost tracker
-- [ ] 02-02-PLAN.md -- Session context compaction (AGNT-06) with auto-trigger and /compact command
-- [ ] 02-03-PLAN.md -- BigQuery tools (Query, Schema, Cost) with Lipgloss table rendering
-- [ ] 02-04-PLAN.md -- TUI integration: BQ styles, status bar cost, /cost and /sync commands
-- [ ] 02-05-PLAN.md -- App assembly wiring, dynamic SQL risk, system prompt injection, end-to-end verification
+- [x] 02-01-PLAN.md -- Config extensions, BQ client, SQL classifier, schema cache (SQLite+FTS5), cost tracker
+- [x] 02-02-PLAN.md -- Session context compaction (AGNT-06) with auto-trigger and /compact command
+- [x] 02-03-PLAN.md -- BigQuery tools (Query, Schema, Cost) with Lipgloss table rendering
+- [x] 02-04-PLAN.md -- TUI integration: BQ styles, status bar cost, /cost and /sync commands
+- [x] 02-05-PLAN.md -- App assembly wiring, dynamic SQL risk, system prompt injection, end-to-end verification
+- [ ] 02-06-PLAN.md -- Gap closure: CostUpdateEvent emission wiring and lazy cache prompt update
+- [ ] 02-07-PLAN.md -- Gap closure: SQL optimization analysis (BQ-09) with partition/clustering/JOIN hints
 
 ### Phase 1.1: TUI Excellence
 **Goal**: User can operate Cascade through a calm, trustworthy, efficient terminal interface that matches the interaction quality of Claude Code/Codex while staying tailored to GCP data engineering workflows
@@ -154,7 +156,7 @@ Phases execute in numeric order: 1 -> 1.1 -> 2 -> 3 -> 4 -> 5 -> 6
 |-------|----------------|--------|-----------|
 | 1. Foundation | 4/4 | Complete | 2026-03-17 |
 | 1.1. TUI Excellence | 3/3 | Complete | 2026-03-20 |
-| 2. BigQuery Core | 0/5 | Not started | - |
+| 2. BigQuery Core | 5/7 | Gap closure | - |
 | 3. Platform Tools | 0/2 | Not started | - |
 | 4. Data Engineering | 0/3 | Not started | - |
 | 5. Extensibility | 0/2 | Not started | - |
