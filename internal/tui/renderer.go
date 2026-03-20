@@ -1,50 +1,51 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
-// StreamRenderer implements a ring buffer + render tick pattern for streaming
-// LLM tokens to the TUI without deadlocking the Bubble Tea event loop.
-// Tokens are pushed to a buffered channel by the agent goroutine and drained
-// in batch by the TUI's 30fps tick.
+// StreamRenderer accumulates streaming LLM tokens in a thread-safe, lossless
+// buffer. Tokens are pushed by the agent goroutine and drained in batch by
+// the TUI's 30fps tick. Unlike the previous channel-based approach, this
+// implementation never drops tokens.
 type StreamRenderer struct {
-	buffer  chan string      // Buffered channel, capacity 256
-	content strings.Builder  // Accumulated raw content
-	dirty   bool             // Content changed since last drain
+	mu      sync.Mutex
+	pending []string        // Tokens waiting to be drained
+	content strings.Builder // Accumulated raw content
+	dirty   bool
 }
 
-// NewStreamRenderer creates a new StreamRenderer with a 256-token buffer.
+// NewStreamRenderer creates a new StreamRenderer.
 func NewStreamRenderer() *StreamRenderer {
-	return &StreamRenderer{
-		buffer: make(chan string, 256),
-	}
+	return &StreamRenderer{}
 }
 
-// Push adds a token to the buffer. Non-blocking: drops token if buffer is full.
-// This prevents the streaming goroutine from ever blocking on send, avoiding
-// the Bubble Tea deadlock pitfall.
+// Push appends a token to the pending buffer. Thread-safe, never blocks,
+// never drops.
 func (r *StreamRenderer) Push(token string) {
-	select {
-	case r.buffer <- token:
-	default:
-		// Buffer full -- drop token to prevent deadlock.
-		// Extremely rare at cap 256 with 30fps drain.
-	}
+	r.mu.Lock()
+	r.pending = append(r.pending, token)
+	r.mu.Unlock()
 }
 
-// DrainAll reads all available tokens from the buffer (non-blocking) and
-// appends them to the accumulated content. Returns the number of tokens drained.
+// DrainAll moves all pending tokens into the accumulated content. Returns the
+// number of tokens drained. Called from the TUI goroutine on each tick.
 func (r *StreamRenderer) DrainAll() int {
-	count := 0
-	for {
-		select {
-		case token := <-r.buffer:
-			r.content.WriteString(token)
-			count++
-			r.dirty = true
-		default:
-			return count
-		}
+	r.mu.Lock()
+	tokens := r.pending
+	r.pending = nil
+	r.mu.Unlock()
+
+	if len(tokens) == 0 {
+		return 0
 	}
+
+	for _, t := range tokens {
+		r.content.WriteString(t)
+	}
+	r.dirty = true
+	return len(tokens)
 }
 
 // Content returns the accumulated raw text from all drained tokens.
@@ -62,16 +63,11 @@ func (r *StreamRenderer) ResetDirty() {
 	r.dirty = false
 }
 
-// Reset clears all accumulated content and the dirty flag for the next message.
+// Reset clears all accumulated content and pending tokens for the next message.
 func (r *StreamRenderer) Reset() {
-	// Drain any remaining tokens
-	for {
-		select {
-		case <-r.buffer:
-		default:
-			r.content.Reset()
-			r.dirty = false
-			return
-		}
-	}
+	r.mu.Lock()
+	r.pending = nil
+	r.mu.Unlock()
+	r.content.Reset()
+	r.dirty = false
 }

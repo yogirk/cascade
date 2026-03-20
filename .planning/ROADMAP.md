@@ -13,6 +13,7 @@ Cascade is built inside-out: a working conversational agent first (loop + TUI + 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Working conversational agent with GCP auth, permissions, TUI, and core file tools (completed 2026-03-17)
+- [x] **Phase 1.1: TUI Excellence** - Claude Code/Codex-grade terminal experience for conversation flow, tool UX, approvals, and operational clarity (completed 2026-03-20)
 - [ ] **Phase 2: BigQuery Core** - Schema-aware data surface with query execution, cost estimation, and NL-to-SQL
 - [ ] **Phase 3: Platform Tools** - GCP operational surface with Composer, Logging, GCS, and cross-service debugging
 - [ ] **Phase 4: Data Engineering** - dbt integration, data profiling, SQL analysis, platform summary, PII detection, and offline mode
@@ -34,14 +35,14 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Project scaffold, core types, config, auth, and LLM provider
-- [ ] 01-02-PLAN.md -- Tool system (6 core tools) and permission engine
-- [ ] 01-03-PLAN.md -- Agent loop, governor, session management, and app wiring
-- [ ] 01-04-PLAN.md -- Bubble Tea TUI, one-shot runner, and Cobra CLI entry point
+- [x] 01-01-PLAN.md -- Project scaffold, core types, config, auth, and LLM provider
+- [x] 01-02-PLAN.md -- Tool system (6 core tools) and permission engine
+- [x] 01-03-PLAN.md -- Agent loop, governor, session management, and app wiring
+- [x] 01-04-PLAN.md -- Bubble Tea TUI, one-shot runner, and Cobra CLI entry point
 
 ### Phase 2: BigQuery Core
 **Goal**: User can explore their warehouse schema, execute queries with cost awareness, and generate SQL from natural language with high accuracy due to schema context
-**Depends on**: Phase 1
+**Depends on**: Phase 1.1
 **Requirements**: BQ-01, BQ-02, BQ-03, BQ-04, BQ-05, BQ-06, BQ-07, BQ-08, BQ-09, AGNT-06
 **Success Criteria** (what must be TRUE):
   1. User can ask "show me tables in the analytics dataset" and see formatted schema information including columns, partitioning, and clustering
@@ -49,12 +50,37 @@ Plans:
   3. User can describe a query in natural language and receive accurate SQL that references correct table and column names from their warehouse
   4. User can see a running session cost total (BigQuery bytes + LLM tokens) and receives alerts when approaching configured budget limits
   5. Schema cache refreshes in the background without blocking the session, and user can force refresh via `/sync`
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md -- Config extensions, BQ client, SQL classifier, schema cache (SQLite+FTS5), cost tracker
+- [ ] 02-02-PLAN.md -- Session context compaction (AGNT-06) with auto-trigger and /compact command
+- [ ] 02-03-PLAN.md -- BigQuery tools (Query, Schema, Cost) with Lipgloss table rendering
+- [ ] 02-04-PLAN.md -- TUI integration: BQ styles, status bar cost, /cost and /sync commands
+- [ ] 02-05-PLAN.md -- App assembly wiring, dynamic SQL risk, system prompt injection, end-to-end verification
+
+### Phase 1.1: TUI Excellence
+**Goal**: User can operate Cascade through a calm, trustworthy, efficient terminal interface that matches the interaction quality of Claude Code/Codex while staying tailored to GCP data engineering workflows
+**Depends on**: Phase 1
+**Requirements**: UX-04, UX-05, UX-06, AGNT-03, AGNT-05
+**Success Criteria** (what must be TRUE):
+  1. Streaming output is lossless, visually stable, and never drops assistant text during long responses or tool-heavy turns
+  2. Tool activity is rendered as high-signal operational UI with intent, progress, outcome, and errors, rather than raw log spam
+  3. Permission prompts provide enough context to make safe decisions quickly, including risk, impact, and preview information
+  4. Input ergonomics support fast expert usage through history, slash-command discovery, and clear mode/status awareness
+  5. The TUI surfaces session state that matters for trust: model, permission mode, active work, pending approvals, project context, and eventually session cost/cache freshness hooks
+  6. The interface establishes a reusable UI contract for upcoming BigQuery and platform-native views without needing a TUI rewrite in Phase 2
+**Plans**: 3 plans (consolidated from 5 originally planned)
+
+Plans:
+- [x] 01.1-01-PLAN.md -- Lossless streaming, TurnStartEvent, tool output formatting, input history
+- [x] 01.1-02-PLAN.md -- Approval UX redesign, slash commands, status bar refinements
+- [x] 01.1-03-PLAN.md -- Visual polish, adaptive colors, terminal width resilience, interaction tests
+
+Additional work completed beyond plans (review-driven):
+- Bug fixes: idle tick loop, pre-confirm state restore, panic recovery, layout optimization
+- Framework: lipgloss borders for input, pre-computed badge styles, deduplicated ToolBullet
+- UX: confirm left-accent border, native text selection, steady cursor (no blink)
 
 ### Phase 3: Platform Tools
 **Goal**: User can investigate pipeline failures across Composer, Cloud Logging, GCS, and BigQuery through a single conversational session without switching tools
@@ -122,12 +148,13 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
+Phases execute in numeric order: 1 -> 1.1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/4 | Complete    | 2026-03-17 |
-| 2. BigQuery Core | 0/3 | Not started | - |
+| 1. Foundation | 4/4 | Complete | 2026-03-17 |
+| 1.1. TUI Excellence | 3/3 | Complete | 2026-03-20 |
+| 2. BigQuery Core | 0/5 | Not started | - |
 | 3. Platform Tools | 0/2 | Not started | - |
 | 4. Data Engineering | 0/3 | Not started | - |
 | 5. Extensibility | 0/2 | Not started | - |

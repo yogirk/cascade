@@ -10,10 +10,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/cascade-cli/cascade/internal/app"
-	"github.com/cascade-cli/cascade/internal/config"
-	"github.com/cascade-cli/cascade/internal/oneshot"
-	"github.com/cascade-cli/cascade/internal/tui"
+	"github.com/yogirk/cascade/internal/app"
+	"github.com/yogirk/cascade/internal/config"
+	"github.com/yogirk/cascade/internal/oneshot"
+	"github.com/yogirk/cascade/internal/tui"
 )
 
 var version = "0.1.0-dev"
@@ -32,6 +32,8 @@ func main() {
 
 	rootCmd.Flags().StringP("prompt", "p", "", "One-shot mode: run prompt and exit")
 	rootCmd.Flags().String("model", "", "LLM model to use (e.g., gemini-2.5-pro)")
+	rootCmd.Flags().String("provider", "", "Backend: \"gemini\" (API key) or \"vertex\" (GCP)")
+	rootCmd.Flags().String("project", "", "GCP Project ID for Vertex AI")
 	rootCmd.Flags().String("config", "", "Path to config file")
 	rootCmd.Flags().Bool("bypass", false, "Auto-approve all tool calls")
 
@@ -48,6 +50,12 @@ func run(cmd *cobra.Command, args []string) error {
 	flags := make(map[string]string)
 	if m, _ := cmd.Flags().GetString("model"); m != "" {
 		flags["model"] = m
+	}
+	if p, _ := cmd.Flags().GetString("provider"); p != "" {
+		flags["provider"] = p
+	}
+	if p, _ := cmd.Flags().GetString("project"); p != "" {
+		flags["project"] = p
 	}
 	configPath, _ := cmd.Flags().GetString("config")
 	bypass, _ := cmd.Flags().GetBool("bypass")

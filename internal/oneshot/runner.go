@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cascade-cli/cascade/internal/app"
-	"github.com/cascade-cli/cascade/internal/permission"
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/internal/app"
+	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // Run executes a one-shot conversation: sends the prompt to the agent, streams

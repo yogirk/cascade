@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cascade-cli/cascade/internal/permission"
-	"github.com/cascade-cli/cascade/internal/provider"
-	"github.com/cascade-cli/cascade/internal/tools"
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/internal/provider"
+	"github.com/yogirk/cascade/internal/tools"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // --- Test helpers ---
@@ -29,7 +29,9 @@ type mockResponse struct {
 	err      error
 }
 
-func (m *multiMockProvider) Model() string { return "test-model" }
+func (m *multiMockProvider) Model() string {
+	return "mock-model"
+}
 
 func (m *multiMockProvider) GenerateStream(_ context.Context, _ []types.Message, _ []provider.Declaration) (*provider.Stream, error) {
 	m.mu.Lock()

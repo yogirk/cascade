@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cascade-cli/cascade/internal/permission"
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // TestEventProcessing_Tokens verifies that TokenEvents are written to stdout.

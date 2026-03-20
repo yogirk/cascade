@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/pkg/types"
 	"google.golang.org/genai"
 )
 
@@ -78,7 +78,7 @@ func TestConvertToGenAI_AssistantWithToolCalls(t *testing.T) {
 
 func TestConvertToGenAI_ToolResult(t *testing.T) {
 	msgs := []types.Message{
-		types.ToolResultMessage("call_1", "file contents here", false),
+		types.ToolResultMessage("call_1", "read_file", "file contents here", false),
 	}
 
 	contents := convertToGenAI(msgs)
@@ -97,8 +97,8 @@ func TestConvertToGenAI_ToolResult(t *testing.T) {
 	if fr == nil {
 		t.Fatal("expected function response part")
 	}
-	if fr.Name != "call_1" {
-		t.Errorf("expected function response name %q, got %q", "call_1", fr.Name)
+	if fr.Name != "read_file" {
+		t.Errorf("expected function response name %q, got %q", "read_file", fr.Name)
 	}
 	output, ok := fr.Response["output"]
 	if !ok {
@@ -111,7 +111,7 @@ func TestConvertToGenAI_ToolResult(t *testing.T) {
 
 func TestConvertToGenAI_ToolResultError(t *testing.T) {
 	msgs := []types.Message{
-		types.ToolResultMessage("call_2", "permission denied", true),
+		types.ToolResultMessage("call_2", "bash", "permission denied", true),
 	}
 
 	contents := convertToGenAI(msgs)

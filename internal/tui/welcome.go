@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -11,27 +10,22 @@ import (
 
 // WelcomeModel renders the welcome banner when the chat is empty.
 type WelcomeModel struct {
-	mode     permission.Mode
-	project  string   // GCP project ID
-	datasets []string // configured BQ datasets
-	authOK   bool     // GCP resource auth succeeded
-	width    int
-	height   int
+	modelName string
+	mode      permission.Mode
+	cwd       string
+	gitBranch string
+	width     int
+	height    int
 }
 
 // NewWelcomeModel creates a new welcome banner.
-func NewWelcomeModel(mode permission.Mode, project string, datasets []string) WelcomeModel {
+func NewWelcomeModel(modelName string, mode permission.Mode, cwd, gitBranch string) WelcomeModel {
 	return WelcomeModel{
-		mode:     mode,
-		project:  project,
-		datasets: datasets,
-		authOK:   true, // assume OK unless explicitly set
+		modelName: modelName,
+		mode:      mode,
+		cwd:       cwd,
+		gitBranch: gitBranch,
 	}
-}
-
-// SetAuthOK sets whether GCP resource auth succeeded.
-func (w *WelcomeModel) SetAuthOK(ok bool) {
-	w.authOK = ok
 }
 
 // SetSize updates the welcome banner dimensions.
@@ -40,28 +34,36 @@ func (w *WelcomeModel) SetSize(width, height int) {
 	w.height = height
 }
 
-// Welcome banner styles (gBlue, gRed, gYellow, gGreen, gBright, gDim,
-// cascadeBg1-4) are defined in styles.go and initialized adaptively
-// for light/dark terminals via initPalette().
+// -- Styles --
 
-// renderCascadeLogo renders the Cascade logo — four bars stepping
-// right, each a pipeline stage.
-func renderCascadeLogo() string {
-	const px = " " // 1-space pixel unit
+var (
+	gBlue   = lipgloss.NewStyle().Foreground(googleBlue)
+	gRed    = lipgloss.NewStyle().Foreground(googleRed)
+	gYellow = lipgloss.NewStyle().Foreground(googleYellow)
+	gGreen  = lipgloss.NewStyle().Foreground(googleGreen)
+	gBright = lipgloss.NewStyle().Foreground(brightColor)
+	gDim    = lipgloss.NewStyle().Foreground(dimTextColor)
+)
 
-	b1 := cascadeBg1.Render
-	b2 := cascadeBg2.Render
-	b3 := cascadeBg3.Render
+// -- Lighthouse Beacon Mascot --
 
-	bar := func(render func(...string) string, n int) string {
-		return render(strings.Repeat(px, n))
-	}
-	pad := func(n int) string { return strings.Repeat(px, n) }
+// renderLighthouse renders the lighthouse beacon pixel art mascot.
+func renderLighthouse() string {
+	Y := gYellow.Render
+	W := gBright.Render
+	R := gRed.Render
+	G := gGreen.Render
 
 	lines := []string{
-		pad(0) + bar(b1, 5),
-		pad(1) + bar(b2, 5),
-		pad(2) + bar(b3, 5),
+		Y("─ ─") + "  " + Y("▄") + "  " + Y("─ ─"),
+		"     " + W("▄█▄"),
+		Y(" ─") + " " + Y("▄▀") + W("███") + Y("▀▄") + " " + Y("─"),
+		"    " + W("█████"),
+		"    " + R("█") + W("███") + R("█"),
+		"    " + W("█") + R("███") + W("█"),
+		"    " + R("█") + W("███") + R("█"),
+		"   " + W("██") + R("███") + W("██"),
+		"  " + G("▀████████▀"),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -72,101 +74,93 @@ func renderCascadeLogo() string {
 func (w WelcomeModel) View() string {
 	bright := gBright.Bold(true)
 	dim := gDim
-	labelStyle := dim.Bold(true)
 
-	// === Left panel: logo vertically centered ===
-	leftContent := renderCascadeLogo()
+	// === Left panel: mascot + info ===
+	mascot := renderLighthouse()
+
+	modelInfo := gBright.Render(w.modelName) + dim.Render(" · 1M · ") + ModeBadge(w.mode)
+
+	leftContent := mascot + "\n\n" +
+		" " + modelInfo + "\n"
+	if w.cwd != "" {
+		leftContent += " " + dim.Render(w.cwd) + "\n"
+	}
 
 	// Panel widths adapt to terminal
-	totalW := w.width - 6
+	totalW := w.width - 6 // account for margins and border
 	if totalW < 60 {
 		totalW = 60
 	}
 	if totalW > 90 {
 		totalW = 90
 	}
-	leftW := totalW * 20 / 100
+	leftW := totalW * 45 / 100
 	rightW := totalW - leftW
 
 	leftStyle := lipgloss.NewStyle().
 		Width(leftW).
-		Padding(1, 2, 1, 4)
+		Padding(1, 2)
 
 	leftPanel := leftStyle.Render(leftContent)
 
-	// === Right panel: connection status ===
-	warnStyle := lipgloss.NewStyle().Foreground(warningColor)
-	var rightLines []string
+	// === Right panel: quick start + shortcuts ===
+	rightContent := gBlue.Bold(true).Render("Quick start") + "\n" +
+		dim.Render("Type a message and press Enter") + "\n\n" +
+		gYellow.Bold(true).Render("Shortcuts") + "\n"
 
-	if !w.authOK {
-		rightLines = append(rightLines,
-			warnStyle.Render("⚠ Not authenticated"))
-		rightLines = append(rightLines, "")
+	shortcuts := []struct{ key, desc string }{
+		{"Enter", "send message"},
+		{"Shift+Tab", "cycle mode"},
+		{"Ctrl+Y", "copy response"},
+		{"/help", "all commands"},
 	}
-
-	if w.project != "" {
-		rightLines = append(rightLines,
-			labelStyle.Render("Project   ")+bright.Render(w.project))
+	for _, sc := range shortcuts {
+		rightContent += bright.Render(padTo(sc.key, 14)) + dim.Render(sc.desc) + "\n"
 	}
-
-	if len(w.datasets) > 0 {
-		dsText := strings.Join(w.datasets, ", ")
-		rightLines = append(rightLines,
-			labelStyle.Render("Datasets  ")+bright.Render(dsText))
-	}
-
-	rightLines = append(rightLines,
-		labelStyle.Render("Mode      ")+ModeBadge(w.mode))
-
-	rightLines = append(rightLines, "")
-	if w.project == "" {
-		rightLines = append(rightLines,
-			dim.Render("Run cascade --project <id> to connect"))
-	}
-	rightLines = append(rightLines,
-		dim.Render("Type a message to get started"))
-	rightLines = append(rightLines,
-		dim.Render(fmt.Sprintf("%-10s%s", "/help", "all commands")))
-
-	rightContent := strings.Join(rightLines, "\n")
 
 	rightStyle := lipgloss.NewStyle().
 		Width(rightW).
-		Padding(1, 2)
+		Padding(1, 2).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(inputBorderColor)
 
 	rightPanel := rightStyle.Render(rightContent)
 
-	// === Compose panels horizontally (Center aligns logo vertically with right content) ===
-	body := lipgloss.JoinHorizontal(lipgloss.Center, leftPanel, rightPanel)
+	// === Compose panels horizontally ===
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	bodyLines := strings.Split(body, "\n")
 	bodyW := lipgloss.Width(body)
 
-	// === Title line ===
+	// === Build frame manually so title is embedded in top border ===
+	bc := lipgloss.NewStyle().Foreground(inputBorderColor)
+
+	// Top border with "Cascade v0.1.0-dev" embedded
 	titleLabel := " " + bright.Render("Cascade") + dim.Render(" v0.1.0-dev") + " "
 	titleLabelW := lipgloss.Width(titleLabel)
-	trailW := bodyW - titleLabelW - 3
+	trailW := bodyW - titleLabelW - 1 // -1 for leading ─
 	if trailW < 0 {
 		trailW = 0
 	}
+	topBorder := bc.Render("╭─") + titleLabel + bc.Render(strings.Repeat("─", trailW)+"╮")
 
-	bc := lipgloss.NewStyle().Foreground(inputBorderColor)
-	topLine := "  " + bc.Render("──") + titleLabel + bc.Render(strings.Repeat("─", trailW))
-
-	// === Separator below welcome ===
-	sepLine := "  " + bc.Render(strings.Repeat("─", bodyW))
-
-	// === Indent body to align with input box (2-space indent) ===
-	bodyLines := strings.Split(body, "\n")
-	var indentedLines []string
+	// Body rows with side borders
+	var framedLines []string
+	framedLines = append(framedLines, topBorder)
 	for _, line := range bodyLines {
-		indentedLines = append(indentedLines, "  "+line)
+		lineW := lipgloss.Width(line)
+		pad := bodyW - lineW
+		if pad < 0 {
+			pad = 0
+		}
+		framedLines = append(framedLines, bc.Render("│")+line+strings.Repeat(" ", pad)+bc.Render("│"))
 	}
 
-	var all []string
-	all = append(all, topLine)
-	all = append(all, indentedLines...)
-	all = append(all, sepLine)
+	// Bottom border
+	botBorder := bc.Render("╰" + strings.Repeat("─", bodyW) + "╯")
+	framedLines = append(framedLines, botBorder)
 
-	content := strings.Join(all, "\n")
+	content := strings.Join(framedLines, "\n")
 
 	// === Center vertically ===
 	contentLines := strings.Count(content, "\n") + 1
@@ -176,4 +170,12 @@ func (w WelcomeModel) View() string {
 	}
 
 	return content
+}
+
+// padTo pads a string with spaces to a target width.
+func padTo(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }

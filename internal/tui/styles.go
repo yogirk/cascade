@@ -3,137 +3,213 @@ package tui
 
 import (
 	"image/color"
+	"os"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/yogirk/cascade/internal/permission"
 )
 
-// Color palette using lipgloss.Color which returns color.Color in v2.
+// ld chooses between light and dark color variants based on terminal background.
+// Detection happens once at init; defaults to dark if detection fails.
+var ld = lipgloss.LightDark(lipgloss.HasDarkBackground(os.Stdin, os.Stdout))
+
+// Color palette — adaptive for light and dark terminals.
+// Dark variants (second arg) are the original colors; light variants are
+// deeper/darker shades that read well on white backgrounds.
 var (
-	subtleColor  color.Color = lipgloss.Color("#999999")
-	accentColor  color.Color = lipgloss.Color("#AD8AFF")
-	successColor color.Color = lipgloss.Color("#04B575")
-	warningColor color.Color = lipgloss.Color("#FFA500")
-	dangerColor  color.Color = lipgloss.Color("#FF4040")
-	textColor    color.Color = lipgloss.Color("#FAFAFA")
-	dimTextColor color.Color = lipgloss.Color("#666666")
-	whiteColor   color.Color = lipgloss.Color("#FFFFFF")
-	barBgColor   color.Color = lipgloss.Color("#333333")
-	barFgColor   color.Color = lipgloss.Color("#E0E0E0")
-	planBgColor  color.Color = lipgloss.Color("#5B9BD5")
+	accentColor  color.Color = ld(lipgloss.Color("#2563EB"), lipgloss.Color("#6B9FFF")) // Blue
+	dimTextColor color.Color = ld(lipgloss.Color("#6B7280"), lipgloss.Color("#4B5563")) // Gray
+	textColor    color.Color = ld(lipgloss.Color("#374151"), lipgloss.Color("#D1D5DB")) // Body text
+	brightColor  color.Color = ld(lipgloss.Color("#111827"), lipgloss.Color("#F3F4F6")) // Headings
+	successColor color.Color = ld(lipgloss.Color("#059669"), lipgloss.Color("#34D399")) // Green
+	warningColor color.Color = ld(lipgloss.Color("#D97706"), lipgloss.Color("#FBBF24")) // Amber
+	dangerColor  color.Color = ld(lipgloss.Color("#DC2626"), lipgloss.Color("#F87171")) // Red
+	barBgColor   color.Color = ld(lipgloss.Color("#F3F4F6"), lipgloss.Color("#111827")) // Status bar bg
+	toolColor    color.Color = ld(lipgloss.Color("#D97706"), lipgloss.Color("#FBBF24")) // Amber
+	planColor    color.Color = ld(lipgloss.Color("#4F46E5"), lipgloss.Color("#818CF8")) // Indigo
+
+	diffAddBg color.Color = ld(lipgloss.Color("#DCFCE7"), lipgloss.Color("#022c22")) // Diff + bg
+	diffAddFg color.Color = ld(lipgloss.Color("#166534"), lipgloss.Color("#86efac")) // Diff + fg
+	diffRemBg color.Color = ld(lipgloss.Color("#FEE2E2"), lipgloss.Color("#2a0a0a")) // Diff - bg
+	diffRemFg color.Color = ld(lipgloss.Color("#991B1B"), lipgloss.Color("#fca5a5")) // Diff - fg
+
+	inputBorderColor    color.Color = ld(lipgloss.Color("#D1D5DB"), lipgloss.Color("#374151")) // Border
+	inputBorderDimColor color.Color = ld(lipgloss.Color("#E5E7EB"), lipgloss.Color("#1F2937")) // Border dim
+
+	// Google brand colors — fixed, not theme-dependent.
+	googleBlue   color.Color = lipgloss.Color("#4285F4")
+	googleRed    color.Color = lipgloss.Color("#EA4335")
+	googleYellow color.Color = lipgloss.Color("#FBBC05")
+	googleGreen  color.Color = lipgloss.Color("#34A853")
 )
 
-// Message role styles.
+// Message rendering styles.
 var (
-	UserStyle = lipgloss.NewStyle().
+	// UserPromptStyle styles the "> " prefix for user messages.
+	UserPromptStyle = lipgloss.NewStyle().
 			Foreground(accentColor).
 			Bold(true)
 
-	AssistantStyle = lipgloss.NewStyle().
-			Foreground(textColor)
+	// AssistantBulletStyle styles the "∞" prefix for assistant messages.
+	AssistantBulletStyle = lipgloss.NewStyle().
+				Foreground(accentColor)
 
-	ToolStyle = lipgloss.NewStyle().
-			Foreground(subtleColor).
+	// ToolBulletStyle styles the default "∞" character for tool messages.
+	ToolBulletStyle = lipgloss.NewStyle().
+			Foreground(toolColor)
+
+	// ToolBulletReadStyle styles the "∞" for read-only tools (green).
+	ToolBulletReadStyle = lipgloss.NewStyle().
+				Foreground(successColor)
+
+	// ToolBulletWriteStyle styles the "∞" for write/edit tools (amber).
+	ToolBulletWriteStyle = lipgloss.NewStyle().
+				Foreground(warningColor)
+
+	// ToolBulletExecStyle styles the "∞" for bash/exec tools (red).
+	ToolBulletExecStyle = lipgloss.NewStyle().
+				Foreground(dangerColor)
+
+	// ToolNameStyle styles the tool name (bold, default fg).
+	ToolNameStyle = lipgloss.NewStyle().Bold(true)
+
+	// ToolOutputStyle styles indented tool output (dim, 4-space left padding).
+	ToolOutputStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor).
+			PaddingLeft(4)
+
+	// ToolErrorStyle styles tool error output (red, 4-space left padding).
+	ToolErrorStyle = lipgloss.NewStyle().
+			Foreground(dangerColor).
+			PaddingLeft(4)
+
+	// DiffAddStyle styles added lines in diffs.
+	DiffAddStyle = lipgloss.NewStyle().
+			Foreground(diffAddFg).
+			Background(diffAddBg)
+
+	// DiffRemoveStyle styles removed lines in diffs.
+	DiffRemoveStyle = lipgloss.NewStyle().
+			Foreground(diffRemFg).
+			Background(diffRemBg)
+
+	// DiffHunkStyle styles @@ hunk headers.
+	DiffHunkStyle = lipgloss.NewStyle().
+			Foreground(accentColor).
+			Bold(true)
+
+	// SystemMsgStyle styles system messages (dim, italic).
+	SystemMsgStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor).
 			Italic(true)
 
-	ErrorStyle = lipgloss.NewStyle().
-			Foreground(dangerColor).
-			Bold(true)
-)
+	// ErrorPrefixStyle styles the "!" error prefix.
+	ErrorPrefixStyle = lipgloss.NewStyle().
+				Foreground(dangerColor).
+				Bold(true)
 
-// StatusBar styles.
-var (
+	// StatusBarStyle is the base style for the status bar.
 	StatusBarStyle = lipgloss.NewStyle().
 			Background(barBgColor).
-			Foreground(barFgColor).
+			Foreground(textColor).
 			Padding(0, 1)
 
-	StatusBarModelStyle = lipgloss.NewStyle().
+	// StatusModelStyle styles the model name in the status bar.
+	StatusModelStyle = lipgloss.NewStyle().
 				Foreground(accentColor).
 				Bold(true)
 
-	StatusBarVersionStyle = lipgloss.NewStyle().
+	// StatusDimStyle styles dim text in the status bar.
+	StatusDimStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor)
+
+	// WelcomeTitleStyle styles the welcome banner title.
+	WelcomeTitleStyle = lipgloss.NewStyle().
+				Foreground(brightColor).
+				Bold(true)
+
+	// WelcomeDetailStyle styles labels in the welcome banner.
+	WelcomeDetailStyle = lipgloss.NewStyle().
 				Foreground(dimTextColor)
-)
 
-// Input styles.
-var (
-	InputStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(subtleColor).
-			Padding(0, 1)
+	// SeparatorStyle styles the thin horizontal rule between turns.
+	SeparatorStyle = lipgloss.NewStyle().
+			Foreground(inputBorderDimColor)
 
-	InputFocusedStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(accentColor).
-				Padding(0, 1)
-)
+	// hintKeyStyle styles keyboard shortcut keys in the input hint.
+	hintKeyStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor)
 
-// Confirm prompt styles.
-var (
-	ConfirmStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+	// hintTextStyle styles the description text in input hints.
+	hintTextStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor)
+
+	// hintSepStyle styles the separator between hint items.
+	hintSepStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor)
+
+	// ConfirmBoxStyle wraps the permission confirmation prompt with a left accent.
+	ConfirmBoxStyle = lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
 			BorderForeground(warningColor).
-			Padding(0, 1)
+			PaddingLeft(1)
 )
 
-// Risk level badges.
+// Pre-computed badge strings (avoid allocating styles on every render).
 var (
-	ReadBadge = lipgloss.NewStyle().
-			Background(successColor).
-			Foreground(whiteColor).
-			Padding(0, 1).
-			Bold(true).
-			Render("[READ]")
+	riskReadBadge        = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")
+	riskDMLBadge         = lipgloss.NewStyle().Foreground(warningColor).Render("[DML]")
+	riskDestructiveBadge = lipgloss.NewStyle().Foreground(dangerColor).Render("[DESTRUCTIVE]")
 
-	DMLBadge = lipgloss.NewStyle().
-			Background(warningColor).
-			Foreground(whiteColor).
-			Padding(0, 1).
-			Bold(true).
-			Render("[DML]")
-
-	DestructiveBadge = lipgloss.NewStyle().
-				Background(dangerColor).
-				Foreground(whiteColor).
-				Padding(0, 1).
-				Bold(true).
-				Render("[DESTRUCTIVE]")
+	modeConfirmBadge = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render("CONFIRM")
+	modePlanBadge    = lipgloss.NewStyle().Foreground(planColor).Bold(true).Render("PLAN")
+	modeBypassBadge  = lipgloss.NewStyle().Foreground(dangerColor).Bold(true).Render("BYPASS")
 )
 
-// Permission mode badges.
-var (
-	ConfirmModeBadge = lipgloss.NewStyle().
-				Background(successColor).
-				Foreground(whiteColor).
-				Padding(0, 1).
-				Bold(true).
-				Render("CONFIRM")
-
-	PlanModeBadge = lipgloss.NewStyle().
-			Background(planBgColor).
-			Foreground(whiteColor).
-			Padding(0, 1).
-			Bold(true).
-			Render("PLAN")
-
-	BypassModeBadge = lipgloss.NewStyle().
-				Background(dangerColor).
-				Foreground(whiteColor).
-				Padding(0, 1).
-				Bold(true).
-				Render("BYPASS")
-)
-
-// RiskBadge returns the styled badge for a given risk level string.
+// RiskBadge returns a styled inline risk badge like "[DML]" or "[DESTRUCTIVE]".
 func RiskBadge(riskLevel string) string {
 	switch riskLevel {
 	case "READ_ONLY":
-		return ReadBadge
+		return riskReadBadge
 	case "DML":
-		return DMLBadge
+		return riskDMLBadge
 	case "DESTRUCTIVE", "DDL", "ADMIN":
-		return DestructiveBadge
+		return riskDestructiveBadge
 	default:
-		return DMLBadge
+		return riskDMLBadge
+	}
+}
+
+// ToolBullet returns a colored ∞ bullet based on the tool's category.
+//
+//	Green  — read-only (grep, glob, read)
+//	Amber  — write/modify (write, edit)
+//	Red    — execute/risky (bash)
+func ToolBullet(toolName string) string {
+	switch toolName {
+	case "grep", "glob", "read":
+		return ToolBulletReadStyle.Render("∞")
+	case "write", "edit":
+		return ToolBulletWriteStyle.Render("∞")
+	case "bash":
+		return ToolBulletExecStyle.Render("∞")
+	default:
+		return ToolBulletStyle.Render("∞")
+	}
+}
+
+// ModeBadge returns a styled mode string (foreground-only, no background).
+func ModeBadge(mode permission.Mode) string {
+	switch mode {
+	case permission.ModeConfirm:
+		return modeConfirmBadge
+	case permission.ModePlan:
+		return modePlanBadge
+	case permission.ModeBypass:
+		return modeBypassBadge
+	default:
+		return modeConfirmBadge
 	}
 }

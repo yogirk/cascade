@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/cascade-cli/cascade/internal/provider"
+import "github.com/yogirk/cascade/internal/provider"
 
 // Registry manages registered tools and provides lookup and declaration generation.
 type Registry struct {

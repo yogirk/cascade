@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/cascade-cli/cascade/internal/permission"
+	"github.com/yogirk/cascade/internal/permission"
 )
 
 // mockTool implements ToolRiskProvider for testing.

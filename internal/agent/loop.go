@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cascade-cli/cascade/internal/permission"
-	"github.com/cascade-cli/cascade/internal/provider"
-	"github.com/cascade-cli/cascade/internal/tools"
-	"github.com/cascade-cli/cascade/internal/tools/core"
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/internal/provider"
+	"github.com/yogirk/cascade/internal/tools"
+	"github.com/yogirk/cascade/internal/tools/core"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // Agent drives the observe-reason-act conversation cycle.
@@ -55,6 +55,7 @@ func New(cfg AgentConfig) *Agent {
 // processes tool calls, and loops until the LLM produces a text-only response
 // or governor limits are hit.
 func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
+	a.emit(&types.TurnStartEvent{Input: userInput})
 	a.session.Append(types.UserMessage(userInput))
 	a.governor.Reset()
 	toolCallCount := 0
@@ -71,6 +72,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 		declarations := a.registry.Declarations()
 
 		// Stream LLM response
+		a.emit(&types.StreamStartEvent{})
 		stream, err := a.provider.GenerateStream(ctx, a.session.Messages(), declarations)
 		if err != nil {
 			a.emit(&types.ErrorEvent{Err: err})
@@ -78,7 +80,9 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 		}
 
 		// Forward streaming tokens
+		tokensDone := make(chan struct{})
 		go func() {
+			defer close(tokensDone)
 			for token := range stream.Tokens() {
 				a.emit(&types.TokenEvent{Token: token})
 			}
@@ -91,8 +95,14 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 			return err
 		}
 
+		// Wait for all tokens to be forwarded before signaling completion
+		<-tokensDone
+
 		// Append assistant message to session
 		a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
+
+		// Emit StreamComplete event before processing tool calls
+		a.emit(&types.StreamCompleteEvent{Content: response.Text, Usage: response.Usage})
 
 		// No tool calls = turn complete
 		if len(response.ToolCalls) == 0 {
@@ -106,7 +116,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 			// Governor: duplicate detection
 			if a.governor.IsDuplicate(call.Name, call.Input) {
-				a.session.Append(types.ToolResultMessage(call.ID,
+				a.session.Append(types.ToolResultMessage(call.ID, call.Name,
 					"Duplicate tool call detected. Please try a different approach or ask the user for clarification.", true))
 				continue
 			}
@@ -118,7 +128,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 			// Execute with permission check
 			result := a.executeWithPermission(ctx, call)
-			a.session.Append(types.ToolResultMessage(call.ID, result.Content, result.IsError))
+			a.session.Append(types.ToolResultMessage(call.ID, call.Name, result.Content, result.IsError))
 		}
 	}
 }
@@ -187,11 +197,11 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 			Content: fmt.Sprintf("Tool error: %v", err),
 			IsError: true,
 		}
-		a.emit(&types.ToolEndEvent{Name: call.Name, Content: errResult.Content, IsError: true, Err: err})
+		a.emit(&types.ToolEndEvent{Name: call.Name, Content: errResult.Content, Display: errResult.Content, IsError: true, Err: err})
 		return errResult
 	}
 
-	a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: result.IsError})
+	a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, Display: result.Display, IsError: result.IsError})
 	return result
 }
 

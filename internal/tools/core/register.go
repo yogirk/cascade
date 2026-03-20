@@ -1,6 +1,6 @@
 package core
 
-import "github.com/cascade-cli/cascade/internal/tools"
+import "github.com/yogirk/cascade/internal/tools"
 
 // RegisterAll registers all core file tools with the given registry.
 func RegisterAll(registry *tools.Registry) {

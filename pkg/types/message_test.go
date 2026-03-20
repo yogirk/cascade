@@ -80,7 +80,7 @@ func TestAssistantMessageNoToolCalls(t *testing.T) {
 }
 
 func TestToolResultMessage(t *testing.T) {
-	msg := ToolResultMessage("call_123", "file contents here", false)
+	msg := ToolResultMessage("call_123", "read_file", "file contents here", false)
 	if msg.Role != RoleTool {
 		t.Errorf("expected role %q, got %q", RoleTool, msg.Role)
 	}
@@ -99,7 +99,7 @@ func TestToolResultMessage(t *testing.T) {
 }
 
 func TestToolResultMessageError(t *testing.T) {
-	msg := ToolResultMessage("call_789", "permission denied", true)
+	msg := ToolResultMessage("call_789", "bash", "permission denied", true)
 	if msg.ToolResult == nil {
 		t.Fatal("expected non-nil tool result")
 	}

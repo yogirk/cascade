@@ -13,8 +13,10 @@ type Config struct {
 
 // ModelConfig configures the LLM provider and model.
 type ModelConfig struct {
-	Provider string `toml:"provider"` // default: "google"
+	Provider string `toml:"provider"` // default: "vertex"
 	Model    string `toml:"model"`    // default: "gemini-2.5-pro"
+	Project  string `toml:"project"`  // GCP Project ID for Vertex AI
+	Location string `toml:"location"` // GCP Location for Vertex AI (e.g., "us-central1")
 }
 
 // AuthConfig configures GCP authentication.
@@ -42,8 +44,9 @@ type SecurityConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Model: ModelConfig{
-			Provider: "google",
+			Provider: "", // auto-detect: GOOGLE_API_KEY → "gemini", else "vertex"
 			Model:    "gemini-2.5-pro",
+			Location: "us-central1",
 		},
 		Agent: AgentConfig{
 			MaxToolCalls: 15,

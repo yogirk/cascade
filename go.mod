@@ -1,4 +1,4 @@
-module github.com/cascade-cli/cascade
+module github.com/yogirk/cascade
 
 go 1.26.1
 

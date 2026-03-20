@@ -90,4 +90,7 @@ func applyFlags(cfg *Config, flags map[string]string) {
 	if v, ok := flags["provider"]; ok && v != "" {
 		cfg.Model.Provider = v
 	}
+	if v, ok := flags["project"]; ok && v != "" {
+		cfg.Model.Project = v
+	}
 }

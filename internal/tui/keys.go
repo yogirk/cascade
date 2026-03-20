@@ -27,6 +27,13 @@ type KeyMap struct {
 	CycleMode   KeyDef // Shift+Tab: cycle permission mode
 	Background  KeyDef // Ctrl+B: background (stub in Phase 1)
 	Refresh     KeyDef // Ctrl+R: refresh cache (stub in Phase 1)
+	ConfirmUp   KeyDef // k/up: move confirm cursor up
+	ConfirmDown KeyDef // j/down: move confirm cursor down
+	ScrollUp    KeyDef // up: scroll chat up
+	ScrollDown  KeyDef // down: scroll chat down
+	PageUp      KeyDef // pgup: scroll chat page up
+	PageDown    KeyDef // pgdown: scroll chat page down
+	CopyLast    KeyDef // Ctrl+Y: copy last response
 }
 
 // DefaultKeyMap returns the default key bindings for Cascade.
@@ -65,6 +72,34 @@ func DefaultKeyMap() KeyMap {
 		Refresh: KeyDef{
 			Keys: []string{"ctrl+r"},
 			Help: "refresh cache (not implemented)",
+		},
+		ConfirmUp: KeyDef{
+			Keys: []string{"k", "up"},
+			Help: "move cursor up",
+		},
+		ConfirmDown: KeyDef{
+			Keys: []string{"j", "down"},
+			Help: "move cursor down",
+		},
+		ScrollUp: KeyDef{
+			Keys: []string{"up"},
+			Help: "scroll up",
+		},
+		ScrollDown: KeyDef{
+			Keys: []string{"down"},
+			Help: "scroll down",
+		},
+		PageUp: KeyDef{
+			Keys: []string{"pgup"},
+			Help: "page up",
+		},
+		PageDown: KeyDef{
+			Keys: []string{"pgdown"},
+			Help: "page down",
+		},
+		CopyLast: KeyDef{
+			Keys: []string{"ctrl+y"},
+			Help: "copy last response",
 		},
 	}
 }

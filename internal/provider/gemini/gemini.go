@@ -7,26 +7,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
-	"github.com/cascade-cli/cascade/internal/provider"
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/internal/provider"
+	"github.com/yogirk/cascade/pkg/types"
 	"google.golang.org/genai"
 )
 
 // GeminiProvider wraps the GenAI SDK client behind the Provider interface.
 type GeminiProvider struct {
 	client    *genai.Client
+	mu        sync.RWMutex
 	modelName string
 }
 
-// New creates a GeminiProvider. It initializes a GenAI SDK client using
-// Application Default Credentials via the Vertex AI backend.
-// If clientConfig is nil, defaults to VertexAI backend with ADC.
+// New creates a GeminiProvider. If clientConfig is nil, an empty config is
+// used and the SDK auto-detects the backend from environment variables:
+//
+//   - GOOGLE_API_KEY → Gemini API (AI Studio, no project needed)
+//   - GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT → Vertex AI with ADC
+//
+// See: https://pkg.go.dev/google.golang.org/genai#BackendUnspecified
 func New(ctx context.Context, modelName string, clientConfig *genai.ClientConfig) (*GeminiProvider, error) {
 	if clientConfig == nil {
-		clientConfig = &genai.ClientConfig{
-			Backend: genai.BackendVertexAI,
-		}
+		clientConfig = &genai.ClientConfig{}
 	}
 
 	client, err := genai.NewClient(ctx, clientConfig)
@@ -40,16 +44,30 @@ func New(ctx context.Context, modelName string, clientConfig *genai.ClientConfig
 	}, nil
 }
 
-// Model returns the model identifier (e.g., "gemini-2.5-pro").
+// Model returns the configured model identifier.
 func (g *GeminiProvider) Model() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.modelName
 }
 
-// GenerateStream sends conversation history to the Gemini model and returns
+// SetModel updates the model identifier.
+func (g *GeminiProvider) SetModel(name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.modelName = name
+}
+
+// GenerateStream converts internal types to genai SDK types, executes a single model and returns
 // a streaming response. Tokens arrive on Stream.Tokens() channel.
 func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Message, tools []provider.Declaration) (*provider.Stream, error) {
 	contents := convertToGenAI(messages)
 	config := buildConfig(messages, tools)
+
+	// Capture model name under lock to avoid racing with SetModel.
+	g.mu.RLock()
+	model := g.modelName
+	g.mu.RUnlock()
 
 	tokens := make(chan string, 256)
 	result := make(chan provider.StreamResult, 1)
@@ -60,11 +78,21 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 
 		var textParts []string
 		var toolCalls []types.ToolCall
+		var usage *types.Usage
 
-		for resp, err := range g.client.Models.GenerateContentStream(ctx, g.modelName, contents, config) {
+		for resp, err := range g.client.Models.GenerateContentStream(ctx, model, contents, config) {
 			if err != nil {
 				result <- provider.StreamResult{Err: fmt.Errorf("streaming error: %w", err)}
 				return
+			}
+
+			// Capture usage metadata (typically on the last chunk)
+			if resp.UsageMetadata != nil {
+				usage = &types.Usage{
+					PromptTokens:     resp.UsageMetadata.PromptTokenCount,
+					CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
+					TotalTokens:      resp.UsageMetadata.TotalTokenCount,
+				}
 			}
 
 			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -98,6 +126,7 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 			Response: &types.Response{
 				Text:      strings.Join(textParts, ""),
 				ToolCalls: toolCalls,
+				Usage:     usage,
 			},
 		}
 	}()
@@ -192,7 +221,7 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 					Parts: []*genai.Part{
 						{
 							FunctionResponse: &genai.FunctionResponse{
-								Name:     msg.ToolResult.CallID,
+								Name:     msg.ToolResult.Name,
 								Response: respMap,
 							},
 						},

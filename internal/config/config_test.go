@@ -10,8 +10,8 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Model.Provider != "google" {
-		t.Errorf("expected provider %q, got %q", "google", cfg.Model.Provider)
+	if cfg.Model.Provider != "" {
+		t.Errorf("expected provider %q, got %q", "", cfg.Model.Provider)
 	}
 	if cfg.Model.Model != "gemini-2.5-pro" {
 		t.Errorf("expected model %q, got %q", "gemini-2.5-pro", cfg.Model.Model)
@@ -117,8 +117,8 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 
 	// Should return defaults
-	if cfg.Model.Provider != "google" {
-		t.Errorf("expected default provider %q, got %q", "google", cfg.Model.Provider)
+	if cfg.Model.Provider != "" {
+		t.Errorf("expected default provider %q, got %q", "", cfg.Model.Provider)
 	}
 }
 

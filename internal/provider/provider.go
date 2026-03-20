@@ -6,7 +6,7 @@ package provider
 import (
 	"context"
 
-	"github.com/cascade-cli/cascade/pkg/types"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // Provider abstracts LLM backends. Gemini is the default implementation.
@@ -18,6 +18,12 @@ type Provider interface {
 
 	// Model returns the model identifier (e.g., "gemini-2.5-pro").
 	Model() string
+}
+
+// ModelSwitcher is an optional interface for providers that support
+// changing the model at runtime (e.g., via /model slash command).
+type ModelSwitcher interface {
+	SetModel(name string)
 }
 
 // Declaration describes a tool for the LLM.
