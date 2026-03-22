@@ -27,6 +27,10 @@ type ToolCall struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
+
+	// ThoughtSignature is an opaque token from thinking models (e.g. Gemini 3+).
+	// Must be echoed back in the conversation to satisfy the API contract.
+	ThoughtSignature []byte `json:"-"`
 }
 
 // ToolResult represents the result of a tool execution.

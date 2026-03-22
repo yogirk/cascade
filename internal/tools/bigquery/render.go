@@ -8,20 +8,76 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 
+	bq "github.com/yogirk/cascade/internal/bigquery"
 	"github.com/yogirk/cascade/internal/schema"
 )
 
 // Colors hardcoded here since render.go is not in the tui package.
 // These match the dark-terminal palette from internal/tui/styles.go.
 var (
-	borderColor = lipgloss.Color("#374151")
-	accentColor = lipgloss.Color("#6B9FFF")
-	brightColor = lipgloss.Color("#F3F4F6")
-	dimColor    = lipgloss.Color("#4B5563")
-	textColor   = lipgloss.Color("#D1D5DB")
+	accentColor  = lipgloss.Color("#6B9FFF")
+	brightColor  = lipgloss.Color("#F3F4F6")
+	dimColor     = lipgloss.Color("#4B5563")
+	textColor    = lipgloss.Color("#D1D5DB")
+	warningColor = lipgloss.Color("#D97706") // Amber, matches tui/styles.go
+	separatorClr = lipgloss.Color("#374151")
 )
 
-// RenderQueryResults renders query results as a styled Lipgloss table.
+// Shared styles
+var (
+	headerStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	cellStyle   = lipgloss.NewStyle().Foreground(textColor)
+	dimStyle    = lipgloss.NewStyle().Foreground(dimColor)
+)
+
+// cascadeTable builds a table with the Cascade conversational style:
+// bold header row, thin separator, no borders, padding-separated columns,
+// optional alternating row dimming.
+func cascadeTable(headers []string) *table.Table {
+	return table.New().
+		Border(lipgloss.Border{
+			Top:         "",
+			Bottom:      "",
+			Left:        "",
+			Right:       "",
+			TopLeft:     "",
+			TopRight:    "",
+			BottomLeft:  "",
+			BottomRight: "",
+			MiddleLeft:  "",
+			MiddleRight: "",
+			Middle:      "",
+			MiddleTop:   "",
+			MiddleBottom: "",
+		}).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderColumn(false).
+		BorderRow(false).
+		BorderHeader(true).
+		BorderStyle(lipgloss.NewStyle().Foreground(separatorClr)).
+		Headers(headers...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if row == table.HeaderRow {
+				return lipgloss.NewStyle().
+					Foreground(accentColor).
+					Bold(true).
+					PaddingRight(2)
+			}
+			// Subtle alternating rows for scanability
+			s := lipgloss.NewStyle().PaddingRight(2)
+			if row%2 == 0 {
+				return s.Foreground(textColor)
+			}
+			return s.Foreground(lipgloss.Color("#9CA3AF")) // Slightly dimmed
+		}).
+		Wrap(false).
+		Width(120)
+}
+
+// RenderQueryResults renders query results as a styled table.
 // Returns both a Display string (styled for TUI) and a Content string (plain text for LLM).
 func RenderQueryResults(headers []string, rows [][]string, totalRows uint64, maxDisplayRows int, cost float64, durationMs int64, bytesScanned int64) (display string, content string) {
 	if len(headers) == 0 {
@@ -29,54 +85,31 @@ func RenderQueryResults(headers []string, rows [][]string, totalRows uint64, max
 		return msg, msg
 	}
 
-	// Determine how many rows to display.
 	displayRows := rows
 	if len(displayRows) > maxDisplayRows {
 		displayRows = displayRows[:maxDisplayRows]
 	}
 
-	// Build styled display table.
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(borderColor)).
-		Headers(headers...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				return lipgloss.NewStyle().
-					Foreground(accentColor).
-					Bold(true).
-					Padding(0, 1)
-			}
-			return lipgloss.NewStyle().
-				Foreground(textColor).
-				Padding(0, 1)
-		}).
-		Wrap(false)
-
+	t := cascadeTable(headers)
 	for _, row := range displayRows {
 		t.Row(row...)
 	}
 
-	// Cap table width at 120.
-	t.Width(120)
-
 	var sb strings.Builder
 	sb.WriteString(t.Render())
 
-	// Overflow indicator.
+	// Overflow indicator
 	if totalRows > uint64(len(displayRows)) {
 		remaining := totalRows - uint64(len(displayRows))
-		sb.WriteString(fmt.Sprintf("\n  %d more rows", remaining))
+		sb.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  %d more rows", remaining)))
 	}
 
-	// Cost/duration footer.
-	footer := fmt.Sprintf("  %s | %s | %s scanned",
+	// Cost/duration footer
+	footer := fmt.Sprintf("  %s · %s · %s scanned",
 		FormatCost(cost), FormatDuration(durationMs), FormatBytes(bytesScanned))
-	sb.WriteString("\n" + footer)
+	sb.WriteString("\n" + dimStyle.Render(footer))
 
 	display = sb.String()
-
-	// Build plain-text content for LLM (no ANSI).
 	content = renderPlainTable(headers, displayRows, totalRows, maxDisplayRows, cost, durationMs, bytesScanned)
 
 	return display, content
@@ -91,17 +124,17 @@ func RenderTableDetail(detail *schema.TableDetail) (display string, content stri
 	var sb strings.Builder
 
 	// Header: dataset.table
-	header := fmt.Sprintf("  %s.%s", detail.DatasetID, detail.TableID)
-	sb.WriteString(lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(header))
+	header := fmt.Sprintf("%s.%s", detail.DatasetID, detail.TableID)
+	sb.WriteString("  " + lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(header))
 	sb.WriteString("\n")
 
-	// Metadata line.
-	meta := fmt.Sprintf("  Type: %s | Rows: %s | Size: %s",
+	// Metadata line
+	meta := fmt.Sprintf("  Type: %s · Rows: %s · Size: %s",
 		detail.TableType, formatRowCount(detail.RowCount), FormatBytes(detail.SizeBytes))
-	sb.WriteString(lipgloss.NewStyle().Foreground(dimColor).Render(meta))
+	sb.WriteString(dimStyle.Render(meta))
 	sb.WriteString("\n")
 
-	// Partition/Clustering info.
+	// Partition/Clustering info
 	if detail.PartitionField != "" || len(detail.ClusteringFields) > 0 {
 		var parts []string
 		if detail.PartitionField != "" {
@@ -110,35 +143,18 @@ func RenderTableDetail(detail *schema.TableDetail) (display string, content stri
 		if len(detail.ClusteringFields) > 0 {
 			parts = append(parts, fmt.Sprintf("Clustered by: %s", strings.Join(detail.ClusteringFields, ", ")))
 		}
-		partLine := "  " + strings.Join(parts, " | ")
-		sb.WriteString(lipgloss.NewStyle().Foreground(dimColor).Render(partLine))
+		sb.WriteString(dimStyle.Render("  " + strings.Join(parts, " · ")))
 		sb.WriteString("\n")
 	}
 
 	sb.WriteString("\n")
 
-	// Columns table.
+	// Columns table
 	if len(detail.Columns) > 0 {
-		sb.WriteString(fmt.Sprintf("  Columns (%d):\n", len(detail.Columns)))
+		sb.WriteString(dimStyle.Render(fmt.Sprintf("  Columns (%d)", len(detail.Columns))))
+		sb.WriteString("\n")
 
-		colHeaders := []string{"Column Name", "Type", "Nullable", "Description"}
-		t := table.New().
-			Border(lipgloss.RoundedBorder()).
-			BorderStyle(lipgloss.NewStyle().Foreground(borderColor)).
-			Headers(colHeaders...).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == table.HeaderRow {
-					return lipgloss.NewStyle().
-						Foreground(accentColor).
-						Bold(true).
-						Padding(0, 1)
-				}
-				return lipgloss.NewStyle().
-					Foreground(textColor).
-					Padding(0, 1)
-			}).
-			Wrap(false)
-
+		t := cascadeTable([]string{"Column", "Type", "Nullable", "Description"})
 		for _, col := range detail.Columns {
 			nullable := "NO"
 			if col.IsNullable {
@@ -160,13 +176,12 @@ func RenderTableDetail(detail *schema.TableDetail) (display string, content stri
 			t.Row(col.Name, col.DataType, nullable, desc)
 		}
 
-		t.Width(120)
 		sb.WriteString(t.Render())
 	}
 
 	display = sb.String()
 
-	// Plain text content for LLM.
+	// Plain text content for LLM
 	var cb strings.Builder
 	cb.WriteString(fmt.Sprintf("%s.%s\n", detail.DatasetID, detail.TableID))
 	cb.WriteString(fmt.Sprintf("Type: %s | Rows: %s | Size: %s\n",
@@ -199,22 +214,19 @@ func RenderDatasetList(datasets []schema.DatasetInfo, projectID string) (display
 
 	var sb strings.Builder
 
-	header := fmt.Sprintf("  Datasets in project %s:", projectID)
-	sb.WriteString(lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(header))
-	sb.WriteString("\n")
+	header := fmt.Sprintf("Datasets in %s", projectID)
+	sb.WriteString("  " + headerStyle.Render(header))
+	sb.WriteString("\n\n")
 
 	for _, ds := range datasets {
-		line := fmt.Sprintf("    %s  %d tables  %s",
-			lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(ds.DatasetID),
-			ds.TableCount,
-			FormatBytes(ds.TotalBytes))
-		sb.WriteString(lipgloss.NewStyle().Foreground(dimColor).Render(line))
-		sb.WriteString("\n")
+		name := lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(ds.DatasetID)
+		meta := dimStyle.Render(fmt.Sprintf("%d tables · %s", ds.TableCount, FormatBytes(ds.TotalBytes)))
+		sb.WriteString(fmt.Sprintf("    %s  %s\n", name, meta))
 	}
 
 	display = sb.String()
 
-	// Plain text content.
+	// Plain text content
 	var cb strings.Builder
 	cb.WriteString(fmt.Sprintf("Datasets in project %s:\n", projectID))
 	for _, ds := range datasets {
@@ -234,20 +246,20 @@ func RenderColumnSearch(results []schema.ColumnSearchResult, query string) (disp
 
 	var sb strings.Builder
 
-	header := fmt.Sprintf("  Columns matching %q:", query)
-	sb.WriteString(lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(header))
+	header := fmt.Sprintf("Columns matching %q", query)
+	sb.WriteString("  " + headerStyle.Render(header))
 	sb.WriteString("\n")
 
+	t := cascadeTable([]string{"Column Path", "Type", "Description"})
 	for _, r := range results {
 		path := fmt.Sprintf("%s.%s.%s", r.DatasetID, r.TableID, r.ColumnName)
-		line := fmt.Sprintf("    %-45s %-10s %s", path, r.DataType, r.Description)
-		sb.WriteString(lipgloss.NewStyle().Foreground(textColor).Render(line))
-		sb.WriteString("\n")
+		t.Row(path, r.DataType, r.Description)
 	}
+	sb.WriteString(t.Render())
 
 	display = sb.String()
 
-	// Plain text content.
+	// Plain text content
 	var cb strings.Builder
 	cb.WriteString(fmt.Sprintf("Columns matching %q:\n", query))
 	for _, r := range results {
@@ -268,27 +280,11 @@ func RenderTableList(tables []schema.TableInfo, datasetID string) (display strin
 
 	var sb strings.Builder
 
-	header := fmt.Sprintf("  Tables in %s:", datasetID)
-	sb.WriteString(lipgloss.NewStyle().Foreground(brightColor).Bold(true).Render(header))
+	header := fmt.Sprintf("Tables in %s", datasetID)
+	sb.WriteString("  " + headerStyle.Render(header))
 	sb.WriteString("\n")
 
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(borderColor)).
-		Headers("Table", "Type", "Rows", "Size", "Partition").
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				return lipgloss.NewStyle().
-					Foreground(accentColor).
-					Bold(true).
-					Padding(0, 1)
-			}
-			return lipgloss.NewStyle().
-				Foreground(textColor).
-				Padding(0, 1)
-		}).
-		Wrap(false)
-
+	t := cascadeTable([]string{"Table", "Type", "Rows", "Size", "Partition"})
 	for _, ti := range tables {
 		partition := ti.PartitionField
 		if partition == "" {
@@ -296,13 +292,11 @@ func RenderTableList(tables []schema.TableInfo, datasetID string) (display strin
 		}
 		t.Row(ti.TableID, ti.TableType, formatRowCount(ti.RowCount), FormatBytes(ti.SizeBytes), partition)
 	}
-
-	t.Width(120)
 	sb.WriteString(t.Render())
 
 	display = sb.String()
 
-	// Plain text content.
+	// Plain text content
 	var cb strings.Builder
 	cb.WriteString(fmt.Sprintf("Tables in %s:\n", datasetID))
 	for _, ti := range tables {
@@ -361,6 +355,39 @@ func FormatDuration(ms int64) string {
 	}
 }
 
+// RenderOptimizationHints formats optimization hints for display and LLM content.
+func RenderOptimizationHints(hints []bq.OptimizationHint) (display string, content string) {
+	if len(hints) == 0 {
+		return "", ""
+	}
+
+	var displayBuf, contentBuf strings.Builder
+
+	displayBuf.WriteString("\n")
+	displayBuf.WriteString(lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render("  Optimization Suggestions"))
+	displayBuf.WriteString("\n")
+
+	contentBuf.WriteString("\n--- Optimization Suggestions ---\n")
+
+	for i, h := range hints {
+		icon := "INFO"
+		if h.Severity == "warning" {
+			icon = "WARN"
+		}
+
+		displayLine := fmt.Sprintf("  [%s] %s", icon, h.Message)
+		displayBuf.WriteString(displayLine)
+
+		contentBuf.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, strings.ToUpper(h.Category), h.Message))
+
+		if i < len(hints)-1 {
+			displayBuf.WriteString("\n")
+		}
+	}
+
+	return displayBuf.String(), contentBuf.String()
+}
+
 // renderPlainTable builds a plain-text table without ANSI for LLM consumption.
 func renderPlainTable(headers []string, rows [][]string, totalRows uint64, maxDisplayRows int, cost float64, durationMs int64, bytesScanned int64) string {
 	var sb strings.Builder
@@ -371,22 +398,18 @@ func renderPlainTable(headers []string, rows [][]string, totalRows uint64, maxDi
 		llmRows = llmRows[:50]
 	}
 
-	// Header line.
 	sb.WriteString(strings.Join(headers, "\t"))
 	sb.WriteString("\n")
 
-	// Data rows.
 	for _, row := range llmRows {
 		sb.WriteString(strings.Join(row, "\t"))
 		sb.WriteString("\n")
 	}
 
-	// Overflow.
 	if totalRows > uint64(len(llmRows)) {
 		sb.WriteString(fmt.Sprintf("(%d more rows)\n", totalRows-uint64(len(llmRows))))
 	}
 
-	// Footer.
 	sb.WriteString(fmt.Sprintf("%s | %s | %s scanned\n",
 		FormatCost(cost), FormatDuration(durationMs), FormatBytes(bytesScanned)))
 

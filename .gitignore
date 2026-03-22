@@ -4,6 +4,7 @@ Thumbs.db
 
 # Binaries
 bin/
+cascade
 *.exe
 *.dll
 *.so
@@ -31,10 +32,12 @@ service-account*.json
 *.swo
 *~
 
+# Local caches
+.cache/
+
 # Claude Code local settings
 .claude/
 
 # Planning & specs (internal)
 .planning/
 specs/
-cascade-welcome-playground.html

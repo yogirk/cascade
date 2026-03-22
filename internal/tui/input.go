@@ -1,129 +1,139 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
+	"unsafe"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-const (
-	inputMinHeight = 1
-	inputMaxHeight = 8
-	maxHistory     = 50
-)
+const maxHistory = 50
 
-// InputModel wraps a textarea for multi-line user input with a bordered box
-// and prompt history.
+// InputModel provides a chat-style input with:
+//   - Soft wrapping while typing
+//   - Shift+Enter inserts a hard newline
+//   - Enter submits
+//   - Up/Down navigates history (single-line mode only)
+//
+// Visual style: left accent border, elevated background, no full box border.
 type InputModel struct {
-	textarea textarea.Model
-	focused  bool
-	width    int
-	history  []string // Previous submitted prompts
-	histIdx  int      // Current position in history (-1 = composing new)
-	draft    string   // Saved draft when navigating history
+	input   textarea.Model
+	focused bool
+	width   int
+	history []string
+	histIdx int
+	draft   string
 }
 
-// NewInputModel creates a new input model with a bordered, Claude Code-style design.
+// NewInputModel creates a new input model.
 func NewInputModel() InputModel {
-	ta := textarea.New()
-	ta.Placeholder = "Ask anything..."
-	ta.Prompt = ""
-	ta.ShowLineNumbers = false
-	ta.SetHeight(inputMinHeight)
-	ta.CharLimit = 0 // No limit
+	ti := textarea.New()
+	ti.Placeholder = "Ask anything..."
+	ti.Prompt = ""
+	ti.ShowLineNumbers = false
+	ti.CharLimit = 0
+	ti.EndOfBufferCharacter = ' '
 
-	// Rebind InsertNewline to shift+enter so plain enter is free for submit
-	km := ta.KeyMap
-	km.InsertNewline = key.NewBinding(
-		key.WithKeys("shift+enter"),
-		key.WithHelp("shift+enter", "newline"),
-	)
-	ta.KeyMap = km
+	styles := ti.Styles()
+	styles.Focused.Base = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Blurred.Base = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Focused.Prompt = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Blurred.Prompt = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Focused.Text = lipgloss.NewStyle().
+		Foreground(textColor).
+		Background(inputBgColor)
+	styles.Blurred.Text = lipgloss.NewStyle().
+		Foreground(dimTextColor).
+		Background(inputBgColor)
+	styles.Focused.Placeholder = lipgloss.NewStyle().
+		Foreground(dimTextColor).
+		Background(inputBgColor)
+	styles.Blurred.Placeholder = lipgloss.NewStyle().
+		Foreground(dimTextColor).
+		Background(inputBgColor)
+	styles.Focused.CursorLine = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Blurred.CursorLine = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Focused.EndOfBuffer = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Blurred.EndOfBuffer = lipgloss.NewStyle().Background(inputBgColor)
+	styles.Cursor.Blink = false
+	ti.SetStyles(styles)
+	ti.SetHeight(1)
 
-	// Remove all textarea styling — we render the border ourselves
-	styles := ta.Styles()
-	styles.Focused.Base = lipgloss.NewStyle()
-	styles.Blurred.Base = lipgloss.NewStyle()
-	styles.Focused.Prompt = lipgloss.NewStyle()
-	styles.Blurred.Prompt = lipgloss.NewStyle()
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(dimTextColor)
-	styles.Blurred.Placeholder = lipgloss.NewStyle().Foreground(dimTextColor)
-	styles.Focused.CursorLine = lipgloss.NewStyle()
-	styles.Cursor.Blink = false // Steady cursor, no blink
-	ta.SetStyles(styles)
+	ti.Focus()
 
-	ta.Focus()
-
-	return InputModel{
-		textarea: ta,
-		focused:  true,
-		width:    80,
-		histIdx:  -1,
+	m := InputModel{
+		input:   ti,
+		focused: true,
+		width:   80,
+		histIdx: -1,
 	}
+	m.syncInputSize()
+	return m
 }
 
-// Update handles textarea messages and auto-resizes height for multi-line input.
+// shiftEnterKey matches shift+enter for multiline insert.
+var shiftEnterKey = key.NewBinding(key.WithKeys("shift+enter"))
+
+// Update handles input messages.
 func (i InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	if !i.focused {
 		return i, nil
 	}
+
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		if key.Matches(keyMsg, shiftEnterKey) {
+			i.input.InsertString("\n")
+			i.syncInputSize()
+			return i, nil
+		}
+	}
+
 	var cmd tea.Cmd
-	i.textarea, cmd = i.textarea.Update(msg)
-	i.autoResize()
+	i.input, cmd = i.input.Update(msg)
+	i.syncInputSize()
 	return i, cmd
 }
 
 // HistoryUp navigates to the previous prompt in history.
-// Returns true if history was navigated (caller should not forward key to textarea).
 func (i *InputModel) HistoryUp() bool {
-	if len(i.history) == 0 {
-		return false
-	}
-	// Only navigate history when input is single-line (no newlines)
-	if strings.Contains(i.textarea.Value(), "\n") {
-		return false
+	if len(i.history) == 0 || strings.Contains(i.input.Value(), "\n") {
+		return false // no history, or in multiline mode
 	}
 
 	if i.histIdx == -1 {
-		// Save current draft before navigating
-		i.draft = i.textarea.Value()
+		i.draft = i.input.Value()
 		i.histIdx = len(i.history) - 1
 	} else if i.histIdx > 0 {
 		i.histIdx--
 	} else {
-		return true // Already at oldest, consume the key
+		return true
 	}
 
-	i.textarea.Reset()
-	i.textarea.InsertString(i.history[i.histIdx])
-	i.autoResize()
+	i.input.SetValue(i.history[i.histIdx])
+	i.input.CursorEnd()
 	return true
 }
 
 // HistoryDown navigates to the next prompt in history or back to draft.
-// Returns true if history was navigated.
 func (i *InputModel) HistoryDown() bool {
 	if i.histIdx == -1 {
-		return false // Not in history mode
+		return false
 	}
 
 	if i.histIdx < len(i.history)-1 {
 		i.histIdx++
-		i.textarea.Reset()
-		i.textarea.InsertString(i.history[i.histIdx])
+		i.input.SetValue(i.history[i.histIdx])
 	} else {
-		// Back to draft
 		i.histIdx = -1
-		i.textarea.Reset()
-		if i.draft != "" {
-			i.textarea.InsertString(i.draft)
-		}
+		i.input.SetValue(i.draft)
 		i.draft = ""
 	}
-	i.autoResize()
+	i.input.CursorEnd()
 	return true
 }
 
@@ -133,7 +143,6 @@ func (i *InputModel) PushHistory(prompt string) {
 	if trimmed == "" {
 		return
 	}
-	// Deduplicate against last entry
 	if len(i.history) > 0 && i.history[len(i.history)-1] == trimmed {
 		return
 	}
@@ -145,130 +154,121 @@ func (i *InputModel) PushHistory(prompt string) {
 	i.draft = ""
 }
 
-// autoResize adjusts the textarea height to match the number of content lines.
-// When the height grows, it resets the internal viewport so all lines are visible.
-func (i *InputModel) autoResize() {
-	lines := strings.Count(i.textarea.Value(), "\n") + 1
-	h := lines
-	if h < inputMinHeight {
-		h = inputMinHeight
-	}
-	if h > inputMaxHeight {
-		h = inputMaxHeight
-	}
-
-	oldH := i.textarea.Height()
-	i.textarea.SetHeight(h)
-
-	// When height grows, the textarea's internal viewport may be scrolled past
-	// the top (it followed the cursor while height was still small). Reset by
-	// visiting line 0 and navigating back to the cursor's original position.
-	if h > oldH {
-		row := i.textarea.Line()
-		col := i.textarea.LineInfo().ColumnOffset
-		i.textarea.MoveToBegin()
-		for j := 0; j < row; j++ {
-			i.textarea.CursorDown()
-		}
-		i.textarea.SetCursorColumn(col)
-	}
-}
-
-// Height returns the total rendered height of the input box (borders + content + hints).
+// Height returns the total rendered height of the input box.
 func (i *InputModel) Height() int {
-	lines := strings.Count(i.textarea.Value(), "\n") + 1
-	h := lines
-	if h < inputMinHeight {
-		h = inputMinHeight
-	}
-	if h > inputMaxHeight {
-		h = inputMaxHeight
-	}
-	// top border (1) + content lines (h) + hint line (1) + bottom border (1)
-	return h + 3
+	return lipgloss.Height(i.View())
 }
 
-// View renders the input area with a rounded border box.
+// View renders the input area with a left accent border and elevated background.
 func (i InputModel) View() string {
-	// Content width between the two border characters
-	boxWidth := i.width - 2
-	if boxWidth < 20 {
-		boxWidth = 20
-	}
-
-	borderColor := inputBorderColor
-	if !i.focused {
-		borderColor = inputBorderDimColor
-	}
-
-	// Input content lines: " > " + textarea content
-	taView := i.textarea.View()
-	taLines := strings.Split(taView, "\n")
-
-	var lines []string
-	for idx, line := range taLines {
-		if idx == 0 {
-			lines = append(lines, " "+UserPromptStyle.Render("> ")+line)
-		} else {
-			lines = append(lines, "   "+line) // align with first line after "> "
-		}
-	}
-
-	// Hint line
-	if i.focused {
-		hints := strings.Join([]string{
-			hintKeyStyle.Render("enter") + hintTextStyle.Render(" send"),
-			hintKeyStyle.Render("shift+enter") + hintTextStyle.Render(" newline"),
-			hintKeyStyle.Render("↑↓") + hintTextStyle.Render(" history"),
-		}, hintSepStyle.Render("  ·  "))
-		lines = append(lines, " "+hints)
-	}
-
-	content := strings.Join(lines, "\n")
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(boxWidth)
-
-	return style.Render(content)
+	return i.renderBox()
 }
 
-// Value returns the current input text.
+// Value returns the full input text (all lines joined).
 func (i *InputModel) Value() string {
-	return i.textarea.Value()
+	return i.input.Value()
 }
 
-// Reset clears the input text and resets height.
+// Reset clears the input text.
 func (i *InputModel) Reset() {
-	i.textarea.Reset()
-	i.textarea.SetHeight(inputMinHeight)
+	i.input.Reset()
+	i.syncInputSize()
 }
 
 // Focus gives focus to the input area.
 func (i *InputModel) Focus() tea.Cmd {
 	i.focused = true
-	return i.textarea.Focus()
+	return i.input.Focus()
 }
 
 // Blur removes focus from the input area.
 func (i *InputModel) Blur() {
 	i.focused = false
-	i.textarea.Blur()
+	i.input.Blur()
 }
 
 // SetWidth updates the input width.
 func (i *InputModel) SetWidth(width int) {
 	i.width = width
-	// Textarea width = total width minus: 2 border ││ + 1 pad + 2 prompt "> "
-	taWidth := width - 5
-	if taWidth < 20 {
-		taWidth = 20
+	// Match the rendered content width inside the bordered/padded box.
+	tiWidth := width - 5
+	if tiWidth < 20 {
+		tiWidth = 20
 	}
-	i.textarea.SetWidth(taWidth)
+	i.input.SetWidth(tiWidth)
+	i.syncInputSize()
 }
 
 // Focused returns whether the input is currently focused.
 func (i *InputModel) Focused() bool {
 	return i.focused
+}
+
+func (i InputModel) renderBox() string {
+	accentClr := accentColor
+	if !i.focused {
+		accentClr = inputBorderDimColor
+	}
+
+	content := i.input.View()
+
+	boxWidth := i.width
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	return lipgloss.NewStyle().
+		BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(accentClr).
+		PaddingTop(1).
+		PaddingBottom(1).
+		PaddingLeft(2).
+		PaddingRight(2).
+		Width(boxWidth).
+		Background(inputBgColor).
+		Render(content)
+}
+
+func (i *InputModel) syncInputSize() {
+	width := i.input.Width()
+	if width <= 0 {
+		i.input.SetHeight(1)
+		i.resetViewport()
+		return
+	}
+
+	value := i.input.Value()
+	if value == "" {
+		value = i.input.Placeholder
+	}
+
+	totalLines := 0
+	for _, line := range strings.Split(value, "\n") {
+		wrapped := lipgloss.Wrap(line, width, "")
+		lineCount := len(strings.Split(wrapped, "\n"))
+		if lineCount == 0 {
+			lineCount = 1
+		}
+		totalLines += lineCount
+	}
+	if totalLines < 1 {
+		totalLines = 1
+	}
+
+	i.input.SetHeight(totalLines)
+	i.resetViewport()
+}
+
+func (i *InputModel) resetViewport() {
+	// Bubble's textarea keeps its own private viewport offset. When the input
+	// grows to accommodate soft wraps, that offset can remain pinned one row
+	// down, which hides the first wrapped row. Snap it back to the top so the
+	// full wrapped block stays visible.
+	field := reflect.ValueOf(&i.input).Elem().FieldByName("viewport")
+	if !field.IsValid() || field.IsNil() {
+		return
+	}
+	vp := (*viewport.Model)(unsafe.Pointer(field.Pointer()))
+	vp.GotoTop()
 }

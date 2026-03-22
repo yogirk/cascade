@@ -417,6 +417,10 @@ func TestClassifyBashRisk_ReadOnlyCommands(t *testing.T) {
 		{"du -sh .", permission.RiskReadOnly},
 		{"uname -a", permission.RiskReadOnly},
 		{"hostname", permission.RiskReadOnly},
+		{"gcloud config get-value project", permission.RiskReadOnly},
+		{"gcloud projects list", permission.RiskReadOnly},
+		{"bq ls manyminds", permission.RiskReadOnly},
+		{"bq show analytics.users", permission.RiskReadOnly},
 	}
 
 	for _, tc := range cases {

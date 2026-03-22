@@ -36,6 +36,12 @@ type agentEventMsg struct {
 	event types.Event
 }
 
+// approvalRequestMsg wraps a dedicated permission request received from the
+// approval channel.
+type approvalRequestMsg struct {
+	request types.ApprovalRequest
+}
+
 // agentDoneMsg signals that the agent RunTurn goroutine finished.
 type agentDoneMsg struct {
 	err error
@@ -95,7 +101,9 @@ func NewModel(application *app.App) Model {
 	status.SetGitBranch(gitBranch)
 	status.SetCwd(shortCwd)
 
-	welcome := NewWelcomeModel(modelName, mode, shortCwd, gitBranch)
+	project := application.Config.GCP.Project
+	datasets := application.Config.BigQuery.Datasets
+	welcome := NewWelcomeModel(mode, project, datasets)
 
 	m := Model{
 		app:         application,
@@ -124,7 +132,7 @@ func NewModel(application *app.App) Model {
 
 // Init initializes the TUI: start event polling and the render tick.
 func (m Model) Init() tea.Cmd {
-	return m.pollEvents() // Tick starts on-demand when streaming begins
+	return tea.Batch(m.pollEvents(), m.pollApprovals()) // Tick starts on-demand when streaming begins
 }
 
 // Update processes messages and returns the updated model and any commands.
@@ -155,19 +163,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentEventMsg:
 		return m.handleAgentEvent(msg.event)
 
+	case approvalRequestMsg:
+		return m.handleApprovalRequest(msg.request)
+
 	case agentDoneMsg:
 		// Agent goroutine finished
 		if msg.err != nil {
 			m.chat.AddMessage(ChatMessage{Role: "error", Content: msg.err.Error()})
 		}
 		return m, m.pollEvents()
+
+	case ChatMessage:
+		m.chat.AddMessage(msg)
+		return m, nil
 	}
 
 	// Forward to sub-models
 	if m.spinner.Active() {
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		cmds = append(cmds, cmd)
+		if _, ok := msg.(cascadeTickMsg); ok {
+			m.spinner, _ = m.spinner.Update(msg)
+			cmds = append(cmds, m.spinner.Tick())
+		}
 	}
 
 	var chatCmd tea.Cmd
@@ -203,7 +219,7 @@ func (m Model) View() tea.View {
 
 	// Welcome screen or chat viewport
 	if m.showWelcome && m.chat.MessageCount() == 0 {
-		view += indentBlock(m.welcome.View(), " ") + "\n"
+		view += indentBlock(m.welcome.View(), " ") + "\n\n"
 	} else {
 		view += indentBlock(m.chat.View(), contentMargin) + "\n"
 	}
@@ -218,16 +234,29 @@ func (m Model) View() tea.View {
 		view += indentBlock(m.confirm.View(), contentMargin) + "\n"
 	}
 
-	// Input area (1-space indent to align with welcome box)
-	view += indentBlock(m.input.View(), " ") + "\n"
+	// Input area uses a slightly wider gutter than the transcript.
+	view += indentBlock(m.input.View(), "  ") + "\n"
 
 	// Status bar (edge-to-edge, no indent)
 	view += m.status.View()
 
 	v := tea.NewView(view)
 	v.AltScreen = true
-	// MouseModeNone: let the terminal handle text selection natively.
-	// Scrolling is handled via keyboard (arrows, pgup/pgdown).
+	// CellMotion captures wheel events for trackpad scrolling.
+	// Trade-off: native text selection requires Option+drag (macOS).
+	// TODO: fix at Bubble Tea level to support wheel-only mouse mode.
+	v.MouseMode = tea.MouseModeCellMotion
+	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
+		if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+			switch wheel.Button {
+			case tea.MouseWheelUp:
+				m.chat.ScrollUp(3)
+			case tea.MouseWheelDown:
+				m.chat.ScrollDown(3)
+			}
+		}
+		return nil
+	}
 	return v
 }
 
@@ -235,15 +264,33 @@ func (m Model) View() tea.View {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Confirmation mode: only allow confirm keys
-	if m.state == StateConfirming {
+	// When the approval modal is visible, it owns keyboard input regardless of
+	// any transient state drift from queued agent events.
+	if m.confirm.Active() {
 		var cmd tea.Cmd
 		m.confirm, cmd = m.confirm.Update(msg)
 		if !m.confirm.Active() {
 			// User responded, restore pre-confirm state
 			m.state = m.preConfirmState
 			m.status.SetPendingApproval(false)
-			cmds := []tea.Cmd{cmd, m.input.Focus()}
+			cmds := []tea.Cmd{cmd}
+			switch m.state {
+			case StateToolExecuting:
+				if m.lastToolStart != nil {
+					m.spinner.StartTool(m.lastToolStart.Name)
+					m.status.SetToolName(m.lastToolStart.Name)
+					cmds = append(cmds, m.spinner.Tick())
+				}
+				m.input.Blur()
+			case StateStreaming:
+				m.spinner.StartThinking()
+				cmds = append(cmds, m.spinner.Tick(), m.tickCmd())
+				m.input.Blur()
+			default:
+				cmds = append(cmds, m.input.Focus())
+			}
+			m.layout()
+			cmds = append(cmds, m.pollApprovals())
 			return m, tea.Batch(cmds...)
 		}
 		return m, cmd
@@ -343,16 +390,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Add user message to chat
 			m.chat.AddMessage(ChatMessage{Role: "user", Content: text})
 
-			// Start agent turn
+			// Start agent turn — begin elapsed timer immediately
 			m.state = StateStreaming
 			m.renderer.Reset()
+			m.spinner.StartTurn()
+			m.spinner.StartThinking()
 
 			ctx, cancel := context.WithCancel(context.Background())
 			m.cancel = cancel
 
+			m.layout()
 			return m, tea.Batch(
 				m.runAgent(ctx, text),
 				m.pollEvents(),
+				m.spinner.Tick(),
+				m.tickCmd(),
 			)
 		}
 		// When not idle, forward enter to input (if focused)
@@ -393,6 +445,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.renderer.Reset()
 		m.chat.SetStreamingContent("")
 		m.spinner.StartThinking()
+		m.layout()
 		return m, tea.Batch(m.pollEvents(), m.spinner.Tick(), m.tickCmd())
 
 	case *types.StreamCompleteEvent:
@@ -403,9 +456,11 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		}
 		if e.Usage != nil {
 			m.status.AddTokens(e.Usage.PromptTokens, e.Usage.CompletionTokens, e.Usage.TotalTokens)
+			m.spinner.AddTurnTokens(e.Usage.PromptTokens, e.Usage.CompletionTokens)
 		}
 		m.renderer.Reset()
 		m.chat.SetStreamingContent("")
+		m.layout()
 		return m, m.pollEvents()
 
 	case *types.ToolStartEvent:
@@ -413,6 +468,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.lastToolStart = e
 		m.spinner.StartTool(e.Name)
 		m.status.SetToolName(e.Name)
+		m.layout()
 		return m, tea.Batch(m.pollEvents(), m.spinner.Tick())
 
 	case *types.ToolEndEvent:
@@ -431,17 +487,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.chat.AddMessage(msg)
 		m.lastToolStart = nil
 		m.state = StateStreaming
-		return m, m.pollEvents()
-
-	case *types.PermissionRequestEvent:
-		m.preConfirmState = m.state // Save state to restore after confirm
-		m.state = StateConfirming
-		m.spinner.Stop()
-		m.status.SetPendingApproval(true)
-		m.status.SetToolName("")
-		m.input.Blur()
-		m.confirm.Show(e.ToolName, e.Input, e.RiskLevel, e.Response)
-		m.layout() // recalc since spinner stopped and confirm appeared
+		m.layout()
 		return m, m.pollEvents()
 
 	case *types.CostUpdateEvent:
@@ -463,6 +509,10 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: msg})
 		return m, m.pollEvents()
 
+	case *types.StatusEvent:
+		m.status.SetMessage(e.Message)
+		return m, m.pollEvents()
+
 	case *types.ErrorEvent:
 		m.chat.AddMessage(ChatMessage{Role: "error", Content: e.Err.Error()})
 		return m, m.pollEvents()
@@ -472,12 +522,25 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.chat.SetStreamingContent("")
 		m.state = StateIdle
 		m.status.SetToolName("")
-		m.spinner.Stop()
+		m.spinner.EndTurn()
 		m.lastToolStart = nil
+		m.layout()
 		return m, m.input.Focus()
 	}
 
 	return m, m.pollEvents()
+}
+
+func (m Model) handleApprovalRequest(req types.ApprovalRequest) (tea.Model, tea.Cmd) {
+	m.preConfirmState = m.state
+	m.state = StateConfirming
+	m.spinner.Stop()
+	m.status.SetPendingApproval(true)
+	m.status.SetToolName("")
+	m.input.Blur()
+	m.confirm.Show(req.ToolName, req.Input, req.RiskLevel, req.Response)
+	m.layout()
+	return m, nil
 }
 
 // pollEvents returns a command that reads the next event from the app's
@@ -489,6 +552,18 @@ func (m Model) pollEvents() tea.Cmd {
 			return nil
 		}
 		return agentEventMsg{event: event}
+	}
+}
+
+// pollApprovals reads the next permission request from the dedicated approval
+// channel and wraps it as an approvalRequestMsg.
+func (m Model) pollApprovals() tea.Cmd {
+	return func() tea.Msg {
+		request, ok := <-m.app.Approvals
+		if !ok {
+			return nil
+		}
+		return approvalRequestMsg{request: request}
 	}
 }
 
@@ -534,7 +609,7 @@ func (m *Model) layout() {
 
 	m.chat.SetSize(contentWidth, chatHeight)
 	m.welcome.SetSize(m.width-1, chatHeight) // -1 for the 1-space left indent
-	m.input.SetWidth(m.width - 1)            // Same indent as welcome box
+	m.input.SetWidth(m.width - 4)            // 2-space gutter on both sides
 	m.status.SetWidth(m.width) // Status bar stays full-width
 }
 
@@ -720,31 +795,42 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: sb.String()})
 
-	case cmd == "/sync":
+	case cmd == "/sync" || strings.HasPrefix(cmd, "/sync "):
 		if m.app.BQ == nil {
 			m.chat.AddMessage(ChatMessage{Role: "system",
-				Content: "No BigQuery project configured. Set bigquery.project in ~/.cascade/config.toml"})
+				Content: "No BigQuery project configured. Set [gcp] project or [bigquery] project in ~/.cascade/config.toml"})
 			return nil
 		}
-		if len(m.app.Config.BigQuery.Datasets) == 0 {
+
+		// Determine datasets: explicit argument > configured datasets
+		datasets := m.app.Config.BigQuery.Datasets
+		if arg := strings.TrimSpace(strings.TrimPrefix(cmd, "/sync")); arg != "" {
+			datasets = strings.Fields(arg)
+		}
+		if len(datasets) == 0 {
 			m.chat.AddMessage(ChatMessage{Role: "system",
-				Content: "No datasets configured. Add datasets to [bigquery] section in ~/.cascade/config.toml"})
+				Content: "Usage: /sync [dataset ...]\nOr add datasets to [bigquery] section in ~/.cascade/config.toml"})
 			return nil
 		}
-		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Refreshing schema cache..."})
+
+		m.chat.AddMessage(ChatMessage{Role: "system",
+			Content: fmt.Sprintf("Syncing %d dataset(s): %s ...", len(datasets), strings.Join(datasets, ", "))})
+		m.status.SetMessage("Syncing schema...")
 		return func() tea.Msg {
 			ctx := context.Background()
-			err := m.app.BQ.Populator.PopulateAll(ctx, m.app.Config.BigQuery.Datasets, nil)
+			var tableCount int
+			err := m.app.BQ.Populator.PopulateAll(ctx, datasets, func(completed, total int) {
+				tableCount = total
+			})
 			if err != nil {
-				m.chat.AddMessage(ChatMessage{Role: "error",
-					Content: fmt.Sprintf("Schema refresh failed: %v", err)})
-				return nil
+				return ChatMessage{Role: "error",
+					Content: fmt.Sprintf("Schema refresh failed: %v", err)}
 			}
 			// Update system prompt with new schema context
 			newPrompt := app.BuildSystemPrompt(m.app.BQ)
 			m.app.Agent.Session().SetSystemPrompt(newPrompt)
-			m.chat.AddMessage(ChatMessage{Role: "system", Content: "Schema cache refreshed"})
-			return nil
+			return ChatMessage{Role: "system",
+				Content: fmt.Sprintf("Schema cache refreshed — %d tables across %s", tableCount, strings.Join(datasets, ", "))}
 		}
 
 	default:

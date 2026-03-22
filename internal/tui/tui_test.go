@@ -1,13 +1,24 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/yogirk/cascade/internal/app"
 	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/pkg/types"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestStreamRenderer_Push_DrainAll(t *testing.T) {
 	r := NewStreamRenderer()
@@ -194,7 +205,7 @@ func TestRenderToolMessage(t *testing.T) {
 		Display:  "file contents here",
 	}
 	rendered := renderToolMessage(msg)
-	if !containsStr(rendered, "∞") {
+	if !containsStr(rendered, "~") {
 		t.Error("tool message should contain ∞ bullet")
 	}
 	if !containsStr(rendered, "read_file") {
@@ -211,7 +222,7 @@ func TestRenderToolMessage_Error(t *testing.T) {
 		IsError:  true,
 	}
 	rendered := renderToolMessage(msg)
-	if !containsStr(rendered, "∞") {
+	if !containsStr(rendered, "~") {
 		t.Error("tool error should contain ∞ bullet")
 	}
 	if !containsStr(rendered, "!") {
@@ -297,7 +308,7 @@ func TestNewConfirmModel(t *testing.T) {
 
 func TestConfirmModel_Show(t *testing.T) {
 	c := NewConfirmModel()
-	ch := make(chan bool, 1)
+	ch := make(chan types.ApprovalDecision, 1)
 	c.Show("bash", []byte(`{"command":"rm -rf /tmp/test"}`), "DESTRUCTIVE", ch)
 
 	if !c.Active() {
@@ -327,7 +338,7 @@ func TestConfirmModel_Show(t *testing.T) {
 
 func TestConfirmModel_CursorNavigation(t *testing.T) {
 	c := NewConfirmModel()
-	ch := make(chan bool, 1)
+	ch := make(chan types.ApprovalDecision, 1)
 	c.Show("bash", []byte(`{"command":"test"}`), "DML", ch)
 
 	if c.cursor != 0 {
@@ -339,6 +350,22 @@ func TestConfirmModel_CursorNavigation(t *testing.T) {
 	c.cursor = 1
 	if c.cursor != 1 {
 		t.Error("cursor should be at 1 (No)")
+	}
+}
+
+func TestConfirmModel_LeftRightNavigation(t *testing.T) {
+	c := NewConfirmModel()
+	ch := make(chan types.ApprovalDecision, 1)
+	c.Show("bash", []byte(`{"command":"test"}`), "DML", ch)
+
+	updated, _ := c.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if updated.cursor != 1 {
+		t.Fatalf("expected right arrow to move cursor to deny, got %d", updated.cursor)
+	}
+
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if updated.cursor != 0 {
+		t.Fatalf("expected left arrow to move cursor back to allow, got %d", updated.cursor)
 	}
 }
 
@@ -364,9 +391,9 @@ func TestModeBadge(t *testing.T) {
 		mode     permission.Mode
 		contains string
 	}{
-		{permission.ModeConfirm, "CONFIRM"},
-		{permission.ModePlan, "PLAN"},
-		{permission.ModeBypass, "BYPASS"},
+		{permission.ModeAsk, "ASK"},
+		{permission.ModeReadOnly, "READ ONLY"},
+		{permission.ModeFullAccess, "FULL ACCESS"},
 	}
 	for _, tt := range tests {
 		badge := ModeBadge(tt.mode)
@@ -377,40 +404,40 @@ func TestModeBadge(t *testing.T) {
 }
 
 func TestWelcomeView(t *testing.T) {
-	w := NewWelcomeModel("gemini-2.5-pro", permission.ModeConfirm, "~/Projects/cascade", "main")
+	w := NewWelcomeModel(permission.ModeAsk, "my-project", []string{"hacker_news"})
 	w.SetSize(100, 30)
 	view := w.View()
-	if !containsStr(view, "cascade") {
-		t.Error("welcome should contain 'cascade' name")
+	if !containsStr(view, "Cascade") {
+		t.Error("welcome should contain 'Cascade' title")
 	}
-	if !containsStr(view, "gemini-2.5-pro") {
-		t.Error("welcome should contain model name")
+	if !containsStr(view, "my-project") {
+		t.Error("welcome should contain project name")
 	}
-	if !containsStr(view, "Quick start") {
-		t.Error("welcome should contain quick start section")
+	if !containsStr(view, "hacker_news") {
+		t.Error("welcome should contain dataset name")
 	}
-	if !containsStr(view, "Shortcuts") {
-		t.Error("welcome should contain shortcuts section")
+	if !containsStr(view, "/help") {
+		t.Error("welcome should contain /help hint")
 	}
 }
 
 func TestStatusBarLayout(t *testing.T) {
-	s := NewStatusModel("gemini-2.5-pro", permission.ModeConfirm)
+	s := NewStatusModel("gemini-2.5-pro", permission.ModeAsk)
 	s.SetWidth(100)
 	s.SetGitBranch("main")
 	s.SetCwd("~/Projects/cascade")
 
 	view := s.View()
-	if !containsStr(view, "gemini-2.5-pro") {
-		t.Error("status bar should contain model name")
+	if !containsStr(view, "Gemini 2.5 (Pro)") {
+		t.Error("status bar should contain friendly model name")
 	}
-	if !containsStr(view, "CONFIRM") {
+	if !containsStr(view, "ASK") {
 		t.Error("status bar should contain mode")
 	}
 }
 
 func TestStatusBarResponsive(t *testing.T) {
-	s := NewStatusModel("gemini-2.5-pro", permission.ModeConfirm)
+	s := NewStatusModel("gemini-2.5-pro", permission.ModeAsk)
 	s.SetGitBranch("main")
 	s.SetCwd("~/Projects/cascade")
 
@@ -515,6 +542,70 @@ func TestInputHistory_Empty(t *testing.T) {
 	}
 }
 
+func TestInputHeightMatchesRenderedViewWithWrappedMultilineContent(t *testing.T) {
+	input := NewInputModel()
+	input.SetWidth(30)
+	input.input.SetValue("this is a long active line that should wrap inside the input box without horizontal scrolling")
+	input.syncInputSize()
+
+	if got, want := input.Height(), strings.Count(input.View(), "\n")+1; got != want {
+		t.Fatalf("expected input height %d, got %d", want, got)
+	}
+}
+
+func TestInputViewStaysWithinAssignedWidth(t *testing.T) {
+	input := NewInputModel()
+	input.SetWidth(30)
+	input.input.SetValue("this is a long active line that should wrap instead of widening the box")
+	input.syncInputSize()
+
+	for _, line := range strings.Split(input.View(), "\n") {
+		if width := lipgloss.Width(ansiRE.ReplaceAllString(line, "")); width > 30 {
+			t.Fatalf("expected rendered input width <= 30, got %d in %q", width, ansiRE.ReplaceAllString(line, ""))
+		}
+	}
+
+	if got, want := input.input.Width(), 25; got != want {
+		t.Fatalf("expected text input width %d, got %d", want, got)
+	}
+}
+
+func TestInputLongLineWrapsToAdditionalRows(t *testing.T) {
+	input := NewInputModel()
+	input.SetWidth(30)
+	baseHeight := input.Height()
+
+	input.input.SetValue("this is a long active line that should wrap to the next row while typing")
+	input.syncInputSize()
+
+	if input.Height() <= baseHeight {
+		t.Fatalf("expected wrapped input to grow taller than %d, got %d", baseHeight, input.Height())
+	}
+	if strings.Contains(input.input.View(), "\n") == false {
+		t.Fatal("expected wrapped textarea view to contain a newline")
+	}
+}
+
+func TestInputTypingLongLineWrapsWithoutDroppingTopRows(t *testing.T) {
+	input := NewInputModel()
+	input.SetWidth(30)
+
+	text := "this is a long active line that should wrap to the next row while typing"
+	for _, r := range text {
+		var cmd tea.Cmd
+		input, cmd = input.Update(tea.KeyPressMsg{Text: string(r)})
+		_ = cmd
+	}
+
+	view := ansiRE.ReplaceAllString(input.View(), "")
+	if !strings.Contains(view, "\n") {
+		t.Fatalf("expected wrapped view after typing, got %q", view)
+	}
+	if !strings.Contains(view, "this is a long active") {
+		t.Fatalf("expected top wrapped row to remain visible, got %q", view)
+	}
+}
+
 func TestChatModel_Clear(t *testing.T) {
 	chat := NewChatModel(80, 20)
 	chat.AddMessage(ChatMessage{Role: "user", Content: "hello"})
@@ -528,6 +619,19 @@ func TestChatModel_Clear(t *testing.T) {
 
 	if chat.MessageCount() != 0 {
 		t.Errorf("expected 0 messages after clear, got %d", chat.MessageCount())
+	}
+}
+
+func TestChatModel_MouseWheelScroll(t *testing.T) {
+	chat := NewChatModel(80, 5)
+	for i := 0; i < 20; i++ {
+		chat.AddMessage(ChatMessage{Role: "assistant", Content: fmt.Sprintf("message %d", i)})
+	}
+
+	before := chat.viewport.YOffset()
+	updated, _ := chat.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	if updated.viewport.YOffset() >= before {
+		t.Fatalf("expected mouse wheel up to scroll transcript up, before=%d after=%d", before, updated.viewport.YOffset())
 	}
 }
 
@@ -693,5 +797,352 @@ func TestLastCodeBlock(t *testing.T) {
 	got := chat.LastCodeBlock()
 	if got != "echo hello" {
 		t.Errorf("expected 'echo hello', got %q", got)
+	}
+}
+
+func TestConfirmHeightMatchesRenderedView(t *testing.T) {
+	c := NewConfirmModel()
+	ch := make(chan types.ApprovalDecision, 1)
+	c.Show("write_file", []byte(`{"file_path":"/tmp/cascade-test.txt","content":"hello"}`), "DML", ch)
+
+	if got, want := c.Height(), strings.Count(c.View(), "\n")+1; got != want {
+		t.Fatalf("expected confirm height %d, got %d", want, got)
+	}
+}
+
+func TestLayoutTracksSpinnerAndConfirmHeight(t *testing.T) {
+	m := Model{
+		chat:    NewChatModel(80, 20),
+		input:   NewInputModel(),
+		status:  NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner: NewSpinnerModel(),
+		confirm: NewConfirmModel(),
+		width:   120,
+		height:  30,
+	}
+
+	m.layout()
+	baseHeight := m.chat.height
+
+	m.spinner.StartTool("write_file")
+	m.layout()
+	if m.chat.height != baseHeight-1 {
+		t.Fatalf("expected spinner to consume one line, chat height %d -> %d", baseHeight, m.chat.height)
+	}
+
+	ch := make(chan types.ApprovalDecision, 1)
+	m.spinner.Stop()
+	m.confirm.Show("write_file", []byte(`{"file_path":"/tmp/cascade-test.txt","content":"hello"}`), "DML", ch)
+	m.layout()
+	if want := baseHeight - m.confirm.Height(); m.chat.height != want {
+		t.Fatalf("expected confirm to consume %d lines, got chat height %d want %d", m.confirm.Height(), m.chat.height, want)
+	}
+}
+
+func TestHandleKey_ConfirmApprovalResumesToolSpinner(t *testing.T) {
+	resp := make(chan types.ApprovalDecision, 1)
+	m := Model{
+		chat:            NewChatModel(80, 20),
+		input:           NewInputModel(),
+		status:          NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner:         NewSpinnerModel(),
+		confirm:         NewConfirmModel(),
+		width:           120,
+		height:          30,
+		state:           StateConfirming,
+		preConfirmState: StateToolExecuting,
+		lastToolStart:   &types.ToolStartEvent{Name: "write_file"},
+	}
+	m.confirm.Show("write_file", []byte(`{"file_path":"/tmp/cascade-test.txt","content":"hello"}`), "DML", resp)
+	m.layout()
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Text: "y"})
+	next := updated.(Model)
+
+	select {
+	case decision := <-resp:
+		if decision.Action != types.ApprovalAllowOnce {
+			t.Fatalf("expected allow-once approval response, got %q", decision.Action)
+		}
+	default:
+		t.Fatal("expected confirm response to be sent")
+	}
+
+	if next.state != StateToolExecuting {
+		t.Fatalf("expected state %v, got %v", StateToolExecuting, next.state)
+	}
+	if !next.spinner.Active() {
+		t.Fatal("expected tool spinner to resume after approval")
+	}
+	if next.status.toolName != "write_file" {
+		t.Fatalf("expected tool name to be restored, got %q", next.status.toolName)
+	}
+	if next.input.Focused() {
+		t.Fatal("input should stay blurred while tool execution resumes")
+	}
+}
+
+func TestHandleApprovalRequest_EntersModalState(t *testing.T) {
+	m := Model{
+		chat:    NewChatModel(80, 20),
+		input:   NewInputModel(),
+		status:  NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner: NewSpinnerModel(),
+		confirm: NewConfirmModel(),
+		width:   120,
+		height:  30,
+		state:   StateToolExecuting,
+	}
+	m.spinner.StartTool("bash")
+	m.layout()
+
+	resp := make(chan types.ApprovalDecision, 1)
+	updated, _ := m.handleApprovalRequest(types.ApprovalRequest{
+		ToolName:  "bash",
+		Input:     []byte(`{"command":"rm -rf /tmp/test"}`),
+		RiskLevel: "DESTRUCTIVE",
+		Response:  resp,
+	})
+	next := updated.(Model)
+
+	if next.state != StateConfirming {
+		t.Fatalf("expected confirming state, got %v", next.state)
+	}
+	if !next.confirm.Active() {
+		t.Fatal("expected confirm modal to be active")
+	}
+	if next.input.Focused() {
+		t.Fatal("input should be blurred while approval modal is active")
+	}
+	if !next.status.pendingApproval {
+		t.Fatal("status bar should reflect pending approval")
+	}
+	if next.spinner.Active() {
+		t.Fatal("spinner should stop while approval modal is shown")
+	}
+}
+
+func TestHandleKey_VisibleConfirmConsumesInputEvenIfStateDrifts(t *testing.T) {
+	resp := make(chan types.ApprovalDecision, 1)
+
+	m := Model{
+		input:          NewInputModel(),
+		status:         NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner:        NewSpinnerModel(),
+		confirm:        NewConfirmModel(),
+		width:          120,
+		height:         30,
+		state:          StateIdle,
+		preConfirmState: StateToolExecuting,
+	}
+	m.confirm.Show("write_file", []byte(`{"file_path":"/tmp/test.txt","content":"hello"}`), "DML", resp)
+	m.layout()
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Text: "y"})
+	next := updated.(Model)
+
+	select {
+	case decision := <-resp:
+		if decision.Action != types.ApprovalAllowOnce {
+			t.Fatalf("expected allow once decision, got %q", decision.Action)
+		}
+	default:
+		t.Fatal("expected confirm modal to consume y even when state drifted")
+	}
+
+	if next.confirm.Active() {
+		t.Fatal("expected confirm modal to close after approval")
+	}
+	if next.state != StateToolExecuting {
+		t.Fatalf("expected pre-confirm state to be restored, got %v", next.state)
+	}
+}
+
+func TestConfirmOptionsAlignDescriptions(t *testing.T) {
+	ch := make(chan types.ApprovalDecision, 1)
+	c := NewConfirmModel()
+	c.Show("edit_file", []byte(`{"file_path":"/tmp/test.txt","old_text":"Hello","new_text":"World"}`), "DML", ch)
+
+	view := c.View()
+	lines := strings.Split(view, "\n")
+	var actionLines []string
+	for _, line := range lines {
+		if strings.Contains(line, "Allow once") || strings.Contains(line, "Allow tool for session") || strings.Contains(line, "Deny") {
+			actionLines = append(actionLines, ansiRE.ReplaceAllString(line, ""))
+		}
+	}
+	if len(actionLines) != 3 {
+		t.Fatalf("expected 3 action lines, got %d", len(actionLines))
+	}
+
+	firstGap := strings.Index(actionLines[0], "Run this exact action now")
+	secondGap := strings.Index(actionLines[1], "Skip future prompts for this tool until you exit")
+	thirdGap := strings.Index(actionLines[2], "Block this action")
+	if firstGap == -1 || secondGap == -1 || thirdGap == -1 {
+		t.Fatal("expected action descriptions to be present")
+	}
+	firstWidth := lipgloss.Width(actionLines[0][:firstGap])
+	secondWidth := lipgloss.Width(actionLines[1][:secondGap])
+	thirdWidth := lipgloss.Width(actionLines[2][:thirdGap])
+	if firstWidth != secondWidth || secondWidth != thirdWidth {
+		t.Fatalf("expected action descriptions to start in the same column, got widths %d, %d, %d", firstWidth, secondWidth, thirdWidth)
+	}
+}
+
+func TestProgram_ApprovalConsumesInput(t *testing.T) {
+	approvalCh := make(chan types.ApprovalRequest, 1)
+	eventCh := make(chan types.Event, 1)
+	resp := make(chan types.ApprovalDecision, 1)
+
+	m := Model{
+		app: &app.App{
+			Events:    eventCh,
+			Approvals: approvalCh,
+		},
+		chat:    NewChatModel(80, 20),
+		input:   NewInputModel(),
+		status:  NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner: NewSpinnerModel(),
+		confirm: NewConfirmModel(),
+		width:   120,
+		height:  30,
+	}
+	m.layout()
+
+	inR, inW := io.Pipe()
+	var out bytes.Buffer
+
+	p := tea.NewProgram(m, tea.WithInput(inR), tea.WithOutput(&out))
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := p.Run()
+		done <- err
+	}()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		approvalCh <- types.ApprovalRequest{
+			ToolName:  "bash",
+			Input:     []byte(`{"command":"gcloud config get-value project"}`),
+			RiskLevel: "DESTRUCTIVE",
+			Response:  resp,
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = inW.Write([]byte("y"))
+	}()
+
+	select {
+	case decision := <-resp:
+		if decision.Action != types.ApprovalAllowOnce {
+			t.Fatal("expected y input to approve the modal")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for approval response")
+	}
+
+	p.Quit()
+	_ = inW.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("program exited with error: %v", err)
+	}
+}
+
+func TestProgram_ApprovalConsumesTwoSequentialRequests(t *testing.T) {
+	approvalCh := make(chan types.ApprovalRequest, 2)
+	eventCh := make(chan types.Event, 1)
+	resp1 := make(chan types.ApprovalDecision, 1)
+	resp2 := make(chan types.ApprovalDecision, 1)
+
+	m := Model{
+		app: &app.App{
+			Events:    eventCh,
+			Approvals: approvalCh,
+		},
+		chat:    NewChatModel(80, 20),
+		input:   NewInputModel(),
+		status:  NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner: NewSpinnerModel(),
+		confirm: NewConfirmModel(),
+		width:   120,
+		height:  30,
+	}
+	m.layout()
+
+	inR, inW := io.Pipe()
+	var out bytes.Buffer
+	p := tea.NewProgram(m, tea.WithInput(inR), tea.WithOutput(&out))
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := p.Run()
+		done <- err
+	}()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		approvalCh <- types.ApprovalRequest{
+			ToolName:  "bash",
+			Input:     []byte(`{"command":"gcloud config get-value project"}`),
+			RiskLevel: "DESTRUCTIVE",
+			Response:  resp1,
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = inW.Write([]byte("y"))
+
+		time.Sleep(50 * time.Millisecond)
+		approvalCh <- types.ApprovalRequest{
+			ToolName:  "bash",
+			Input:     []byte(`{"command":"bq ls manyminds"}`),
+			RiskLevel: "DESTRUCTIVE",
+			Response:  resp2,
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = inW.Write([]byte("y"))
+	}()
+
+	select {
+	case decision := <-resp1:
+		if decision.Action != types.ApprovalAllowOnce {
+			t.Fatal("expected first approval to succeed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first approval response")
+	}
+
+	select {
+	case decision := <-resp2:
+		if decision.Action != types.ApprovalAllowOnce {
+			t.Fatal("expected second approval to succeed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second approval response")
+	}
+
+	p.Quit()
+	_ = inW.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("program exited with error: %v", err)
+	}
+}
+
+func TestUpdate_ChatMessageAddsToTranscript(t *testing.T) {
+	m := Model{
+		chat:   NewChatModel(80, 20),
+		input:  NewInputModel(),
+		status: NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		width:  120,
+		height: 30,
+	}
+	m.layout()
+
+	updated, _ := m.Update(ChatMessage{Role: "system", Content: "Schema cache refreshed"})
+	next := updated.(Model)
+
+	if next.chat.MessageCount() != 1 {
+		t.Fatalf("expected 1 chat message, got %d", next.chat.MessageCount())
+	}
+	if got := next.chat.messages[0].Content; got != "Schema cache refreshed" {
+		t.Fatalf("expected chat message to be added, got %q", got)
 	}
 }

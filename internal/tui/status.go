@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -16,9 +17,10 @@ import (
 type StatusModel struct {
 	modelName        string
 	mode             permission.Mode
-	toolName         string // Non-empty when a tool is executing
+	toolName         string    // Non-empty when a tool is executing
 	width            int
-	message          string // Transient status message
+	message          string    // Transient status message
+	messageSetAt     time.Time // When the message was set (for auto-expire)
 	gitBranch        string
 	cwd              string
 	cost             float64
@@ -28,6 +30,121 @@ type StatusModel struct {
 	completionTokens int32
 	totalTokens      int32
 	lastPromptTokens int32 // Most recent prompt tokens = current context usage
+}
+
+// friendlyModelName converts raw model IDs to human-readable names.
+// e.g. "gemini-3-flash-preview" → "Gemini 3 (Flash)"
+//      "claude-opus-4-6"        → "Opus 4.6"
+//      "gpt-4o-mini"            → "GPT-4o Mini"
+func friendlyModelName(raw string) string {
+	s := strings.ToLower(raw)
+	// Strip common prefixes/suffixes
+	s = strings.TrimPrefix(s, "models/")
+
+	switch {
+	// Gemini models
+	case strings.Contains(s, "gemini"):
+		return parseGemini(s)
+	// Claude models
+	case strings.Contains(s, "claude") || strings.Contains(s, "opus") ||
+		strings.Contains(s, "sonnet") || strings.Contains(s, "haiku"):
+		return parseClaude(s)
+	// GPT models
+	case strings.Contains(s, "gpt"):
+		return parseGPT(s)
+	default:
+		return raw
+	}
+}
+
+func parseGemini(s string) string {
+	// Extract version: gemini-3, gemini-2.5, gemini-1.5
+	var version, variant string
+	for _, v := range []string{"3.1", "3", "2.5", "2.0", "1.5", "1.0"} {
+		if strings.Contains(s, "gemini-"+v) || strings.Contains(s, "gemini_"+v) {
+			version = v
+			break
+		}
+	}
+	if version == "" {
+		return "Gemini"
+	}
+
+	// Detect variant
+	switch {
+	case strings.Contains(s, "ultra"):
+		variant = "Ultra"
+	case strings.Contains(s, "pro"):
+		variant = "Pro"
+	case strings.Contains(s, "flash-lite") || strings.Contains(s, "flash_lite"):
+		variant = "Flash Lite"
+	case strings.Contains(s, "flash"):
+		variant = "Flash"
+	case strings.Contains(s, "nano"):
+		variant = "Nano"
+	}
+
+	name := "Gemini " + version
+	if variant != "" {
+		name += " (" + variant + ")"
+	}
+	return name
+}
+
+func parseClaude(s string) string {
+	// claude-opus-4-6 → Opus 4.6, claude-sonnet-4-5 → Sonnet 4.5
+	var family, version string
+	for _, f := range []string{"opus", "sonnet", "haiku"} {
+		if strings.Contains(s, f) {
+			family = strings.Title(f)
+			break
+		}
+	}
+	if family == "" {
+		return "Claude"
+	}
+
+	// Find version digits after the family name
+	parts := strings.Split(s, "-")
+	for i, p := range parts {
+		if p == strings.ToLower(family) && i+1 < len(parts) {
+			major := parts[i+1]
+			if i+2 < len(parts) {
+				minor := parts[i+2]
+				// Skip non-numeric suffixes like "20251001"
+				if len(minor) <= 2 {
+					version = major + "." + minor
+				} else {
+					version = major
+				}
+			} else {
+				version = major
+			}
+			break
+		}
+	}
+
+	if version != "" {
+		return family + " " + version
+	}
+	return family
+}
+
+func parseGPT(s string) string {
+	switch {
+	case strings.Contains(s, "gpt-4o-mini"):
+		return "GPT-4o Mini"
+	case strings.Contains(s, "gpt-4o"):
+		return "GPT-4o"
+	case strings.Contains(s, "gpt-4-turbo"):
+		return "GPT-4 Turbo"
+	case strings.Contains(s, "gpt-4"):
+		return "GPT-4"
+	case strings.Contains(s, "gpt-3.5"):
+		return "GPT-3.5"
+	default:
+		return strings.ToUpper(s[:3]) + s[3:]
+	}
 }
 
 // contextWindowSize returns the context window size for known models.
@@ -68,9 +185,10 @@ func (s *StatusModel) SetToolName(name string) {
 	s.toolName = name
 }
 
-// SetMessage sets a transient status message.
+// SetMessage sets a transient status message that auto-expires after 3 seconds.
 func (s *StatusModel) SetMessage(msg string) {
 	s.message = msg
+	s.messageSetAt = time.Now()
 }
 
 // SetWidth updates the status bar width.
@@ -129,7 +247,7 @@ func (s StatusModel) View() string {
 	}
 
 	// Build segments
-	model := StatusModelStyle.Render(s.modelName)
+	model := StatusModelStyle.Render(friendlyModelName(s.modelName))
 	mode := ModeBadge(s.mode)
 
 	// Middle: approval, tool, or cost status
@@ -137,8 +255,8 @@ func (s StatusModel) View() string {
 	if s.pendingApproval {
 		middle = lipgloss.NewStyle().Foreground(warningColor).Render("● awaiting approval")
 	} else if s.toolName != "" {
-		middle = ToolBulletStyle.Render("∞") + " " + s.toolName
-	} else if s.message != "" {
+		middle = ToolBulletStyle.Render("~") + " " + s.toolName
+	} else if s.message != "" && time.Since(s.messageSetAt) < 3*time.Second {
 		middle = s.message
 	} else if s.cost > 0 {
 		costStr := fmt.Sprintf("$%.2f", s.cost)
@@ -152,7 +270,7 @@ func (s StatusModel) View() string {
 		}
 	}
 
-	// Context usage bar + token counts
+	// Context usage bar (no token counts — those are shown per-turn in spinner)
 	var context string
 	if s.totalTokens > 0 {
 		ctxSize := contextWindowSize(s.modelName)
@@ -162,9 +280,7 @@ func (s StatusModel) View() string {
 		if pct > 0 && pct < 1 {
 			pctStr = "<1%"
 		}
-		context = bar + " " + StatusDimStyle.Render(pctStr) +
-			"  " + StatusDimStyle.Render(fmt.Sprintf("↑%s ↓%s",
-			formatTokens(s.promptTokens), formatTokens(s.completionTokens)))
+		context = bar + " " + StatusDimStyle.Render(pctStr)
 	}
 
 	// Right side: cwd + git branch (responsive)
@@ -176,10 +292,10 @@ func (s StatusModel) View() string {
 		if right != "" {
 			right += "  "
 		}
-		right += StatusDimStyle.Render(s.gitBranch)
+		right += StatusDimStyle.Render(" " + s.gitBranch)
 	}
 
-	// Assemble with spacing
+	// Assemble with spacing, 2-space left pad to align with input box
 	parts := []string{model, mode}
 	if middle != "" {
 		parts = append(parts, middle)
@@ -191,12 +307,12 @@ func (s StatusModel) View() string {
 		parts = append(parts, right)
 	}
 
-	content := strings.Join(parts, "   ")
+	content := "  " + strings.Join(parts, "   ")
 	contentWidth := lipgloss.Width(content)
 
 	// Pad to fill width
-	if contentWidth < w-2 {
-		content += strings.Repeat(" ", w-2-contentWidth)
+	if contentWidth < w {
+		content += strings.Repeat(" ", w-contentWidth)
 	}
 
 	return StatusBarStyle.Width(w).Render(content)

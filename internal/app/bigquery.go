@@ -6,14 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/oauth2"
-
+	"cloud.google.com/go/bigquery"
+	"github.com/yogirk/cascade/internal/auth"
 	bq "github.com/yogirk/cascade/internal/bigquery"
 	"github.com/yogirk/cascade/internal/config"
 	"github.com/yogirk/cascade/internal/schema"
 	"github.com/yogirk/cascade/internal/tools"
 	bqtools "github.com/yogirk/cascade/internal/tools/bigquery"
 	"github.com/yogirk/cascade/pkg/types"
+	"google.golang.org/api/iterator"
 )
 
 // BigQueryComponents holds all BQ-related runtime objects.
@@ -25,26 +26,30 @@ type BigQueryComponents struct {
 }
 
 // initBigQuery creates BQ components if configuration is present.
-// Returns nil if no BQ project is configured (graceful degradation).
-func initBigQuery(ctx context.Context, cfg *config.Config, ts oauth2.TokenSource) (*BigQueryComponents, error) {
-	// BQ project: use bigquery.project config, fall back to model.project
-	project := cfg.BigQuery.Project
-	if project == "" {
-		project = cfg.Model.Project
-	}
-	if project == "" {
-		// No project = no BQ (user hasn't configured it)
-		return nil, nil
+// Uses Resource Plane credentials, independent of LLM provider choice.
+// Returns nil if GCP auth is unavailable or no project is configured.
+func initBigQuery(ctx context.Context, cfg *config.Config, resource *auth.ResourceAuth) (*BigQueryComponents, error) {
+	if resource == nil || !resource.Available {
+		return nil, nil // No GCP auth — graceful degradation
 	}
 
-	// Location: use bigquery.location, fall back to "US"
+	// BQ project: bigquery.project > gcp.project (via resource)
+	project := cfg.BigQuery.Project
+	if project == "" {
+		project = resource.Project
+	}
+	if project == "" {
+		return nil, nil // No project = no BQ
+	}
+
+	// Location: bigquery.location, default "US"
 	location := cfg.BigQuery.Location
 	if location == "" {
 		location = "US"
 	}
 
-	// Create BQ client
-	client, err := bq.NewClient(ctx, project, location, ts, cfg.Cost.PricePerTB)
+	// Create BQ client using Resource Plane credentials
+	client, err := bq.NewClient(ctx, project, location, resource.TokenSource, cfg.Cost.PricePerTB)
 	if err != nil {
 		return nil, fmt.Errorf("BigQuery client failed: %w", err)
 	}
@@ -75,26 +80,42 @@ func initBigQuery(ctx context.Context, cfg *config.Config, ts oauth2.TokenSource
 }
 
 // registerBQTools creates and registers BQ tools if components are available.
-func registerBQTools(registry *tools.Registry, comp *BigQueryComponents, costCfg *config.CostConfig) {
+func registerBQTools(registry *tools.Registry, comp *BigQueryComponents, costCfg *config.CostConfig, events chan types.Event) {
 	if comp == nil {
 		return
 	}
-	queryTool := bqtools.NewQueryTool(comp.Client, comp.Cache, comp.CostTracker, costCfg)
+	queryTool := bqtools.NewQueryTool(comp.Client, comp.Cache, comp.CostTracker, costCfg, events)
 	schemaTool := bqtools.NewSchemaTool(comp.Cache, comp.Client.ProjectID())
-	costTool := bqtools.NewCostTool(comp.Client)
-	bqtools.RegisterAll(registry, queryTool, schemaTool, costTool)
+	bqtools.RegisterAll(registry, queryTool, schemaTool)
 }
 
 // EnsureCachePopulated triggers lazy cache build if not yet populated.
 // Runs in a background goroutine so it never blocks the caller.
-func (c *BigQueryComponents) EnsureCachePopulated(ctx context.Context, datasets []string, events chan types.Event) {
+// If onCacheReady is non-nil, it is called after successful population.
+func (c *BigQueryComponents) EnsureCachePopulated(ctx context.Context, datasets []string, events chan types.Event, onCacheReady func()) {
 	if c == nil || c.Cache.IsPopulated() || len(datasets) == 0 {
 		return
 	}
 	go func() {
-		err := c.Populator.PopulateAll(ctx, datasets, nil)
+		if events != nil {
+			events <- &types.StatusEvent{Message: "Building schema cache..."}
+		}
+		err := c.Populator.PopulateAll(ctx, datasets, func(completed, total int) {
+			if events != nil {
+				events <- &types.StatusEvent{
+					Message: fmt.Sprintf("Building schema cache... %d/%d tables", completed, total),
+				}
+			}
+		})
 		if err != nil && events != nil {
 			events <- &types.ErrorEvent{Err: fmt.Errorf("lazy cache build failed: %w", err)}
+			return
+		}
+		if events != nil {
+			events <- &types.StatusEvent{Message: "Schema cache ready"}
+		}
+		if err == nil && onCacheReady != nil {
+			onCacheReady()
 		}
 	}()
 }
@@ -120,7 +141,36 @@ type bqClientAdapter struct {
 }
 
 func (a *bqClientAdapter) RunQuery(ctx context.Context, sql string) (schema.RowIterator, error) {
-	return a.client.RunQuery(ctx, sql)
+	it, err := a.client.RunQuery(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	return &bqRowIteratorAdapter{it: it}, nil
+}
+
+// bqRowIteratorAdapter translates between bigquery.Value and interface{}
+// so that populate.go can work without importing the bigquery package.
+type bqRowIteratorAdapter struct {
+	it *bigquery.RowIterator
+}
+
+func (a *bqRowIteratorAdapter) Next(dst interface{}) error {
+	var row []bigquery.Value
+	if err := a.it.Next(&row); err != nil {
+		if err == iterator.Done {
+			return fmt.Errorf("iterator done")
+		}
+		return err
+	}
+	// Convert []bigquery.Value to []interface{} and assign to dst.
+	if ptr, ok := dst.(*[]interface{}); ok {
+		result := make([]interface{}, len(row))
+		for i, v := range row {
+			result[i] = v
+		}
+		*ptr = result
+	}
+	return nil
 }
 
 func (a *bqClientAdapter) ProjectID() string {

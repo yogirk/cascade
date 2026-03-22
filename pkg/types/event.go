@@ -72,6 +72,11 @@ type CostUpdateEvent struct {
 	BytesScanned int64   // Bytes scanned by this query
 }
 
+// StatusEvent is emitted for transient status messages shown in the status bar.
+type StatusEvent struct {
+	Message string
+}
+
 // Sealed interface implementations.
 func (e *TokenEvent) agentEvent()             {}
 func (e *StreamStartEvent) agentEvent()       {}
@@ -84,3 +89,4 @@ func (e *DoneEvent) agentEvent()              {}
 func (e *TurnStartEvent) agentEvent()         {}
 func (e *CompactEvent) agentEvent()           {}
 func (e *CostUpdateEvent) agentEvent()        {}
+func (e *StatusEvent) agentEvent()            {}

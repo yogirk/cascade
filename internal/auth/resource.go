@@ -128,12 +128,6 @@ func serviceAccountTokenSource(ctx context.Context, credentialsFile string) (oau
 	return oauth2.ReuseTokenSource(nil, creds.TokenSource), nil
 }
 
-// TokenSourceFromKeyFile returns an OAuth2 token source from a service account key file.
-// Used for cross-project billing auth when the billing project requires different credentials.
-func TokenSourceFromKeyFile(ctx context.Context, credentialsFile string) (oauth2.TokenSource, error) {
-	return serviceAccountTokenSource(ctx, credentialsFile)
-}
-
 // detectProject resolves a GCP project ID from ADC, env vars, or gcloud CLI.
 func detectProject(ctx context.Context) string {
 	// Try ADC credentials

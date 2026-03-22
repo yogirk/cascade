@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	gcbq "cloud.google.com/go/bigquery"
 	bq "github.com/yogirk/cascade/internal/bigquery"
 	"github.com/yogirk/cascade/internal/config"
 	"github.com/yogirk/cascade/internal/permission"
 	"github.com/yogirk/cascade/internal/schema"
 	"github.com/yogirk/cascade/internal/tools"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 type queryInput struct {
@@ -20,28 +22,35 @@ type queryInput struct {
 	DryRun bool   `json:"dry_run"`
 }
 
+type queryExecutor interface {
+	EstimateCost(ctx context.Context, sql string) (bytesProcessed int64, estimatedCost float64, err error)
+	ExecuteQuery(ctx context.Context, sql string, maxRows int) (headers []string, rows [][]string, totalRows uint64, schema gcbq.Schema, err error)
+}
+
 // QueryTool executes BigQuery SQL queries with cost estimation and result rendering.
 type QueryTool struct {
-	client      *bq.Client
+	client      queryExecutor
 	cache       *schema.Cache
 	costTracker *bq.CostTracker
 	costConfig  *config.CostConfig
+	events      chan types.Event
 }
 
 // NewQueryTool creates a new BigQuery query tool.
-func NewQueryTool(client *bq.Client, cache *schema.Cache, costTracker *bq.CostTracker, costConfig *config.CostConfig) *QueryTool {
+func NewQueryTool(client *bq.Client, cache *schema.Cache, costTracker *bq.CostTracker, costConfig *config.CostConfig, events chan types.Event) *QueryTool {
 	return &QueryTool{
 		client:      client,
 		cache:       cache,
 		costTracker: costTracker,
 		costConfig:  costConfig,
+		events:      events,
 	}
 }
 
 func (t *QueryTool) Name() string { return "bigquery_query" }
 
 func (t *QueryTool) Description() string {
-	return "Execute a BigQuery SQL query. Use this to run SELECT queries, DML statements, or DDL operations against BigQuery. The query will be cost-estimated before execution."
+	return "Execute a BigQuery SQL query or estimate its cost. Set dry_run=true to only see the estimated cost without executing. When executing, cost is automatically estimated first and shown in the results footer. Queries exceeding the cost threshold require confirmation."
 }
 
 func (t *QueryTool) InputSchema() map[string]any {
@@ -65,6 +74,43 @@ func (t *QueryTool) InputSchema() map[string]any {
 // should call ClassifySQLRisk with the actual SQL for dynamic risk classification.
 func (t *QueryTool) RiskLevel() permission.RiskLevel {
 	return permission.RiskDestructive
+}
+
+// PlanPermission allows high-cost read-only queries to require approval and
+// blocks queries above the configured hard cap before execution.
+func (t *QueryTool) PlanPermission(ctx context.Context, input json.RawMessage, baseRisk permission.RiskLevel) (*tools.PermissionPlan, error) {
+	if t.client == nil || t.costConfig == nil || baseRisk != permission.RiskReadOnly {
+		return nil, nil
+	}
+
+	var params queryInput
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, nil
+	}
+	if params.DryRun || strings.TrimSpace(params.SQL) == "" {
+		return nil, nil
+	}
+
+	_, estimatedCost, err := t.client.EstimateCost(ctx, params.SQL)
+	if err != nil || estimatedCost < 0 {
+		return nil, nil
+	}
+
+	if t.costConfig.MaxQueryCost > 0 && estimatedCost > t.costConfig.MaxQueryCost {
+		return &tools.PermissionPlan{
+			DenyMessage: fmt.Sprintf(
+				"Query blocked: estimated cost %s exceeds maximum %s. Add partition filters or increase cost.max_query_cost in config.",
+				FormatCost(estimatedCost), FormatCost(t.costConfig.MaxQueryCost),
+			),
+		}, nil
+	}
+
+	if t.costConfig.WarnThreshold > 0 && estimatedCost >= t.costConfig.WarnThreshold {
+		risk := permission.RiskDML
+		return &tools.PermissionPlan{RiskOverride: &risk}, nil
+	}
+
+	return nil, nil
 }
 
 func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.Result, error) {
@@ -94,7 +140,7 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 	// Step 2: Check cost threshold (skip for DML where cost == -1).
 	if estimatedCost >= 0 && t.costConfig != nil && t.costConfig.MaxQueryCost > 0 {
 		if estimatedCost > t.costConfig.MaxQueryCost {
-			msg := fmt.Sprintf("Query blocked: estimated cost %s exceeds maximum %s. Add partition filters or increase cost.max_query_cost_usd in config.",
+			msg := fmt.Sprintf("Query blocked: estimated cost %s exceeds maximum %s. Add partition filters or increase cost.max_query_cost in config.",
 				FormatCost(estimatedCost), FormatCost(t.costConfig.MaxQueryCost))
 			return &tools.Result{Content: msg, Display: msg, IsError: true}, nil
 		}
@@ -126,10 +172,29 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 			DurationMs:   durationMs,
 			IsDML:        estimatedCost < 0,
 		})
+
+		// Emit cost update event for TUI status bar.
+		if t.events != nil {
+			t.events <- &types.CostUpdateEvent{
+				QueryCost:    estimatedCost,
+				SessionTotal: t.costTracker.SessionTotal(),
+				BytesScanned: bytesProcessed,
+			}
+		}
 	}
 
 	// Step 5: Render results.
 	display, content := RenderQueryResults(headers, rows, totalRows, maxRows, estimatedCost, durationMs, bytesProcessed)
+
+	// Step 5b: Analyze query for optimization suggestions.
+	if t.cache != nil {
+		adapter := &cacheSchemaAdapter{cache: t.cache}
+		if optHints := bq.AnalyzeQuery(params.SQL, adapter); len(optHints) > 0 {
+			hintDisplay, hintContent := RenderOptimizationHints(optHints)
+			display += hintDisplay
+			content += hintContent
+		}
+	}
 
 	// Step 6: Auto-invalidate cache after DDL/destructive operations.
 	risk := bq.ClassifySQLRisk(params.SQL)
@@ -175,4 +240,42 @@ func (t *QueryTool) invalidateCacheForSQL(sql string) {
 		tableID := matches[2]
 		_ = t.cache.InvalidateTable(datasetID, tableID)
 	}
+}
+
+// cacheSchemaAdapter adapts schema.Cache to bq.SchemaLookup.
+// This bridges the schema and bigquery packages without creating a circular import.
+type cacheSchemaAdapter struct {
+	cache *schema.Cache
+}
+
+func (a *cacheSchemaAdapter) GetTableMeta(datasetID, tableID string) (*bq.TableMeta, error) {
+	detail, err := a.cache.GetTableDetail(datasetID, tableID)
+	if err != nil {
+		return nil, err
+	}
+	return &bq.TableMeta{
+		DatasetID:        detail.DatasetID,
+		TableID:          detail.TableID,
+		SizeBytes:        detail.SizeBytes,
+		PartitionField:   detail.PartitionField,
+		ClusteringFields: detail.ClusteringFields,
+	}, nil
+}
+
+func (a *cacheSchemaAdapter) ListTableMeta(datasetID string) ([]bq.TableMeta, error) {
+	tables, err := a.cache.GetTables(datasetID)
+	if err != nil {
+		return nil, err
+	}
+	metas := make([]bq.TableMeta, len(tables))
+	for i, t := range tables {
+		metas[i] = bq.TableMeta{
+			DatasetID:        t.DatasetID,
+			TableID:          t.TableID,
+			SizeBytes:        t.SizeBytes,
+			PartitionField:   t.PartitionField,
+			ClusteringFields: t.ClusteringFields,
+		}
+	}
+	return metas, nil
 }

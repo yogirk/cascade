@@ -36,6 +36,7 @@ var (
 
 	inputBorderColor    color.Color = ld(lipgloss.Color("#D1D5DB"), lipgloss.Color("#374151")) // Border
 	inputBorderDimColor color.Color = ld(lipgloss.Color("#E5E7EB"), lipgloss.Color("#1F2937")) // Border dim
+	inputBgColor        color.Color = ld(lipgloss.Color("#ECEEF2"), lipgloss.Color("#3A3B3F")) // Input bg (neutral elevated)
 
 	// Google brand colors — fixed, not theme-dependent.
 	googleBlue   color.Color = lipgloss.Color("#4285F4")
@@ -51,23 +52,23 @@ var (
 			Foreground(accentColor).
 			Bold(true)
 
-	// AssistantBulletStyle styles the "∞" prefix for assistant messages.
+	// AssistantBulletStyle styles the "≋" prefix for assistant messages.
 	AssistantBulletStyle = lipgloss.NewStyle().
 				Foreground(accentColor)
 
-	// ToolBulletStyle styles the default "∞" character for tool messages.
+	// ToolBulletStyle styles the default "≋" character for tool messages.
 	ToolBulletStyle = lipgloss.NewStyle().
 			Foreground(toolColor)
 
-	// ToolBulletReadStyle styles the "∞" for read-only tools (green).
+	// ToolBulletReadStyle styles the "≋" for read-only tools (green).
 	ToolBulletReadStyle = lipgloss.NewStyle().
 				Foreground(successColor)
 
-	// ToolBulletWriteStyle styles the "∞" for write/edit tools (amber).
+	// ToolBulletWriteStyle styles the "≋" for write/edit tools (amber).
 	ToolBulletWriteStyle = lipgloss.NewStyle().
 				Foreground(warningColor)
 
-	// ToolBulletExecStyle styles the "∞" for bash/exec tools (red).
+	// ToolBulletExecStyle styles the "≋" for bash/exec tools (red).
 	ToolBulletExecStyle = lipgloss.NewStyle().
 				Foreground(dangerColor)
 
@@ -111,14 +112,11 @@ var (
 
 	// StatusBarStyle is the base style for the status bar.
 	StatusBarStyle = lipgloss.NewStyle().
-			Background(barBgColor).
-			Foreground(textColor).
-			Padding(0, 1)
+			Foreground(textColor)
 
 	// StatusModelStyle styles the model name in the status bar.
 	StatusModelStyle = lipgloss.NewStyle().
-				Foreground(accentColor).
-				Bold(true)
+				Foreground(brightColor)
 
 	// StatusDimStyle styles dim text in the status bar.
 	StatusDimStyle = lipgloss.NewStyle().
@@ -136,18 +134,6 @@ var (
 	// SeparatorStyle styles the thin horizontal rule between turns.
 	SeparatorStyle = lipgloss.NewStyle().
 			Foreground(inputBorderDimColor)
-
-	// hintKeyStyle styles keyboard shortcut keys in the input hint.
-	hintKeyStyle = lipgloss.NewStyle().
-			Foreground(dimTextColor)
-
-	// hintTextStyle styles the description text in input hints.
-	hintTextStyle = lipgloss.NewStyle().
-			Foreground(dimTextColor)
-
-	// hintSepStyle styles the separator between hint items.
-	hintSepStyle = lipgloss.NewStyle().
-			Foreground(dimTextColor)
 
 	// ConfirmBoxStyle wraps the permission confirmation prompt with a left accent.
 	ConfirmBoxStyle = lipgloss.NewStyle().
@@ -201,9 +187,9 @@ var (
 	riskDDLBadge         = lipgloss.NewStyle().Foreground(warningColor).Render("[DDL]")
 	riskDestructiveBadge = lipgloss.NewStyle().Foreground(dangerColor).Render("[DESTRUCTIVE]")
 
-	modeConfirmBadge = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render("CONFIRM")
-	modePlanBadge    = lipgloss.NewStyle().Foreground(planColor).Bold(true).Render("PLAN")
-	modeBypassBadge  = lipgloss.NewStyle().Foreground(dangerColor).Bold(true).Render("BYPASS")
+	modeAskBadge        = lipgloss.NewStyle().Foreground(successColor).Bold(true).Render("ASK")
+	modeReadOnlyBadge   = lipgloss.NewStyle().Foreground(planColor).Bold(true).Render("READ ONLY")
+	modeFullAccessBadge = lipgloss.NewStyle().Foreground(dangerColor).Bold(true).Render("FULL ACCESS")
 )
 
 // RiskBadge returns a styled inline risk badge like "[DML]" or "[DESTRUCTIVE]".
@@ -230,30 +216,30 @@ func RiskBadge(riskLevel string) string {
 func ToolBullet(toolName string) string {
 	switch toolName {
 	case "grep", "glob", "read":
-		return ToolBulletReadStyle.Render("∞")
+		return ToolBulletReadStyle.Render("~")
 	case "write", "edit":
-		return ToolBulletWriteStyle.Render("∞")
+		return ToolBulletWriteStyle.Render("~")
 	case "bash":
-		return ToolBulletExecStyle.Render("∞")
-	case "bigquery_schema", "bigquery_cost":
-		return ToolBulletReadStyle.Render("∞") // Green -- read-only
+		return ToolBulletExecStyle.Render("~")
+	case "bigquery_schema":
+		return ToolBulletReadStyle.Render("~") // Green -- read-only
 	case "bigquery_query":
-		return ToolBulletStyle.Render("∞") // Amber -- default tool color (can write)
+		return ToolBulletStyle.Render("~") // Amber -- default tool color (can write)
 	default:
-		return ToolBulletStyle.Render("∞")
+		return ToolBulletStyle.Render("~")
 	}
 }
 
 // ModeBadge returns a styled mode string (foreground-only, no background).
 func ModeBadge(mode permission.Mode) string {
 	switch mode {
-	case permission.ModeConfirm:
-		return modeConfirmBadge
-	case permission.ModePlan:
-		return modePlanBadge
-	case permission.ModeBypass:
-		return modeBypassBadge
+	case permission.ModeAsk:
+		return modeAskBadge
+	case permission.ModeReadOnly:
+		return modeReadOnlyBadge
+	case permission.ModeFullAccess:
+		return modeFullAccessBadge
 	default:
-		return modeConfirmBadge
+		return modeAskBadge
 	}
 }

@@ -121,8 +121,55 @@ func ClassifyBashRisk(command string) permission.RiskLevel {
 		return permission.RiskReadOnly
 	}
 
+	if base == "gcloud" && isReadOnlyGCloud(parts[1:]) {
+		return permission.RiskReadOnly
+	}
+
+	if base == "bq" && isReadOnlyBQ(parts[1:]) {
+		return permission.RiskReadOnly
+	}
+
 	// Unknown commands default to destructive
 	return permission.RiskDestructive
+}
+
+func isReadOnlyGCloud(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "config":
+		return len(args) >= 2 && (args[1] == "get-value" || args[1] == "list")
+	case "projects":
+		return len(args) >= 2 && (args[1] == "describe" || args[1] == "list")
+	case "auth":
+		return len(args) >= 2 && (args[1] == "list" || args[1] == "print-access-token")
+	default:
+		return false
+	}
+}
+
+func isReadOnlyBQ(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "ls", "show", "head":
+		return true
+	case "query":
+		for _, arg := range args[1:] {
+			if strings.HasPrefix(arg, "--destination_table") ||
+				strings.HasPrefix(arg, "--append_table") ||
+				strings.HasPrefix(arg, "--replace") {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func containsDangerousPattern(command string) bool {

@@ -146,6 +146,38 @@ func TestConvertToGenAI_SystemMessage(t *testing.T) {
 	}
 }
 
+func TestConvertToGenAI_SkipsEmptyMessages(t *testing.T) {
+	msgs := []types.Message{
+		types.SystemMessage(""),
+		types.UserMessage(""),
+		types.AssistantMessage("", nil),
+		types.AssistantMessage("real text", nil),
+	}
+
+	contents := convertToGenAI(msgs)
+
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+	if contents[0].Role != "model" {
+		t.Fatalf("expected model role, got %q", contents[0].Role)
+	}
+	if len(contents[0].Parts) != 1 || contents[0].Parts[0].Text != "real text" {
+		t.Fatalf("expected one text part with real content, got %#v", contents[0].Parts)
+	}
+}
+
+func TestBuildConfig_SkipsEmptySystemInstruction(t *testing.T) {
+	config := buildConfig([]types.Message{
+		types.SystemMessage(""),
+		types.UserMessage("hello"),
+	}, nil)
+
+	if config.SystemInstruction != nil {
+		t.Fatal("expected nil system instruction for empty system message")
+	}
+}
+
 func TestConvertFromGenAI_TextResponse(t *testing.T) {
 	resp := &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{

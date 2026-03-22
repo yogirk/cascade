@@ -35,7 +35,7 @@ func main() {
 	rootCmd.Flags().String("provider", "", "Backend: \"gemini\" (API key) or \"vertex\" (GCP)")
 	rootCmd.Flags().String("project", "", "GCP Project ID for Vertex AI")
 	rootCmd.Flags().String("config", "", "Path to config file")
-	rootCmd.Flags().Bool("bypass", false, "Auto-approve all tool calls")
+	rootCmd.Flags().Bool("bypass", false, "Enable full-access mode (legacy flag name)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -69,7 +69,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	if bypass {
-		cfg.Security.DefaultMode = "bypass"
+		cfg.Security.DefaultMode = "full-access"
 	}
 
 	// Check for stdin piping

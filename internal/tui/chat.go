@@ -58,7 +58,8 @@ func NewChatModel(width, height int) ChatModel {
 	km.HalfPageUp.SetEnabled(false)
 	km.HalfPageDown.SetEnabled(false)
 	vp.KeyMap = km
-	vp.MouseWheelEnabled = false // We handle mouse wheel ourselves
+	vp.MouseWheelEnabled = true
+	vp.MouseWheelDelta = 3
 
 	return ChatModel{
 		viewport:   vp,
@@ -267,7 +268,7 @@ func renderMessageOpts(msg ChatMessage, width int, showSep bool) string {
 		}
 		return prefix + UserPromptStyle.Render("> ") + msg.Content
 	case "assistant":
-		return AssistantBulletStyle.Render("∞") + " " + renderMarkdown(msg.Content, width-2)
+		return AssistantBulletStyle.Render("≋") + " " + renderMarkdown(msg.Content, width-2)
 	case "tool":
 		return renderToolMessage(msg)
 	case "error":
@@ -407,7 +408,7 @@ func renderMarkdown(content string, width int) string {
 		w = 40
 	}
 	r, err := glamour.NewTermRenderer(
-		glamour.WithEnvironmentConfig(),
+		glamour.WithStyles(cascadeMarkdownStyle()),
 		glamour.WithWordWrap(w),
 	)
 	if err != nil {

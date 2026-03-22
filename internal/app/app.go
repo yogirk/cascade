@@ -5,12 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
-
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/genai"
 
 	"github.com/yogirk/cascade/internal/agent"
 	"github.com/yogirk/cascade/internal/auth"
@@ -30,64 +24,68 @@ type App struct {
 	Provider    provider.Provider
 	Permissions *permission.Engine
 	Events      chan types.Event
+	Approvals   chan types.ApprovalRequest
 	BQ          *BigQueryComponents // nil if BQ not configured
+	Resource    *auth.ResourceAuth  // GCP platform credentials
 }
 
 // New creates a fully-wired App from the given configuration.
 func New(ctx context.Context, cfg *config.Config) (*App, error) {
-	// Auto-detect provider: if GOOGLE_API_KEY is set and provider isn't explicit, use gemini
-	if cfg.Model.Provider == "" {
-		if os.Getenv("GOOGLE_API_KEY") != "" {
-			cfg.Model.Provider = "gemini"
-		} else {
-			cfg.Model.Provider = "vertex"
-		}
+	// ── 1. Resource Plane: GCP platform auth (always attempt) ──
+	resource := auth.ResolveResourceAuth(ctx,
+		cfg.GCP.Project,
+		cfg.GCP.Location,
+		cfg.GCP.Auth.Mode,
+		cfg.GCP.Auth.ImpersonateServiceAccount,
+		cfg.GCP.Auth.CredentialsFile,
+	)
+
+	// ── 2. Model Plane: LLM provider auth ──
+	modelAuth, err := auth.ResolveModelAuth(
+		cfg.Model.Provider,
+		cfg.Model.Model,
+		resource,
+		cfg.Model.Vertex.Project,
+		cfg.Model.Vertex.Location,
+		cfg.Model.GeminiAPI.APIKeyEnv,
+		cfg.Model.OpenAI.APIKeyEnv,
+		cfg.Model.Anthropic.APIKeyEnv,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("LLM provider setup failed: %w", err)
 	}
 
-	clientConfig, ts, err := buildClientConfig(ctx, cfg)
+	// ── 3. Build LLM provider ──
+	prov, err := buildProvider(ctx, cfg.Model.Model, modelAuth)
 	if err != nil {
 		return nil, err
 	}
 
-	// Provider
-	prov, err := gemini.New(ctx, cfg.Model.Model, clientConfig)
-	if err != nil {
-		return nil, fmt.Errorf("provider setup failed: %w", err)
-	}
-
-	// Tools
+	// ── 4. Tools ──
 	registry := tools.NewRegistry()
 	core.RegisterAll(registry)
 
-	// BigQuery (optional -- graceful if not configured)
+	// ── 5. BigQuery (uses Resource Plane, independent of LLM choice) ──
 	var bqComp *BigQueryComponents
-	if ts != nil {
-		// Vertex provider has a token source; reuse it for BQ
-		bqComp, err = initBigQuery(ctx, cfg, ts)
-		if err != nil {
-			// Log warning but don't fail -- BQ is optional
-			fmt.Fprintf(os.Stderr, "Warning: BigQuery init failed: %v\n", err)
-			bqComp = nil
-		}
+	bqComp, err = initBigQuery(ctx, cfg, resource)
+	if err != nil {
+		// Log warning but don't fail — BQ is optional
+		fmt.Fprintf(os.Stderr, "Warning: BigQuery init failed: %v\n", err)
+		bqComp = nil
 	}
+
+	// Events channels
+	events := make(chan types.Event, 256)
+	approvals := make(chan types.ApprovalRequest, 8)
 
 	// Register BQ tools alongside core tools
-	registerBQTools(registry, bqComp, &cfg.Cost)
+	registerBQTools(registry, bqComp, &cfg.Cost, events)
 
-	// Permissions
-	defaultMode := permission.ModeConfirm
-	switch cfg.Security.DefaultMode {
-	case "plan":
-		defaultMode = permission.ModePlan
-	case "bypass":
-		defaultMode = permission.ModeBypass
-	}
+	// ── 6. Permissions ──
+	defaultMode := permission.ParseMode(cfg.Security.DefaultMode)
 	perms := permission.NewEngine(defaultMode)
 
-	// Events channel (buffered for TUI consumption)
-	events := make(chan types.Event, 256)
-
-	// Agent
+	// ── 7. Agent ──
 	ag := agent.New(agent.AgentConfig{
 		Provider:     prov,
 		Registry:     registry,
@@ -95,12 +93,18 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		MaxToolCalls: cfg.Agent.MaxToolCalls,
 		SystemPrompt: BuildSystemPrompt(bqComp),
 		Events:       agent.EventChan(events),
+		Approvals:    approvals,
 	})
 
 	// Trigger lazy cache build if datasets are configured
 	if bqComp != nil && len(cfg.BigQuery.Datasets) > 0 {
-		bqComp.EnsureCachePopulated(ctx, cfg.BigQuery.Datasets, events)
+		bqComp.EnsureCachePopulated(ctx, cfg.BigQuery.Datasets, events, func() {
+			ag.Session().SetSystemPrompt(BuildSystemPrompt(bqComp))
+		})
 	}
+
+	// ── 8. Startup report ──
+	reportAuthStatus(os.Stderr, resource, modelAuth, bqComp, cfg)
 
 	return &App{
 		Config:      cfg,
@@ -108,80 +112,59 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Provider:    prov,
 		Permissions: perms,
 		Events:      events,
+		Approvals:   approvals,
 		BQ:          bqComp,
+		Resource:    resource,
 	}, nil
 }
 
-// buildClientConfig creates the GenAI client config based on the provider type.
-// For the vertex provider, it also returns the oauth2.TokenSource so it can be
-// reused for BigQuery (avoids creating duplicate credentials).
-func buildClientConfig(ctx context.Context, cfg *config.Config) (*genai.ClientConfig, oauth2.TokenSource, error) {
-	switch cfg.Model.Provider {
-	case "gemini":
-		// AI Studio: uses GOOGLE_API_KEY, no project/OAuth needed
-		apiKey := os.Getenv("GOOGLE_API_KEY")
-		if apiKey == "" {
-			return nil, nil, fmt.Errorf("GOOGLE_API_KEY env var required for gemini provider")
-		}
-		return &genai.ClientConfig{
-			Backend: genai.BackendGeminiAPI,
-			APIKey:  apiKey,
-		}, nil, nil
-
-	case "vertex":
-		// Vertex AI: uses OAuth + GCP project
-		ts, err := auth.NewTokenSource(ctx, &auth.AuthConfig{
-			ImpersonateServiceAccount: cfg.Auth.ImpersonateServiceAccount,
-		})
+// buildProvider creates the LLM provider from resolved model auth.
+func buildProvider(ctx context.Context, modelName string, m *auth.ModelAuth) (provider.Provider, error) {
+	switch m.Provider {
+	case "vertex", "gemini_api":
+		prov, err := gemini.New(ctx, modelName, m.GenAIConfig)
 		if err != nil {
-			return nil, nil, fmt.Errorf("auth setup failed: %w", err)
+			return nil, fmt.Errorf("provider setup failed: %w", err)
 		}
+		return prov, nil
 
-		clientConfig := &genai.ClientConfig{
-			Backend:    genai.BackendVertexAI,
-			HTTPClient: oauth2.NewClient(ctx, ts),
-			Project:    cfg.Model.Project,
-		}
-
-		// Auto-detect project if missing: ADC creds -> env var -> gcloud config
-		if clientConfig.Project == "" {
-			if creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform"); err == nil && creds.ProjectID != "" {
-				clientConfig.Project = creds.ProjectID
-			}
-		}
-		if clientConfig.Project == "" {
-			clientConfig.Project = detectGCPProject()
-		}
-		if clientConfig.Project == "" {
-			return nil, nil, fmt.Errorf("no GCP project found: set --project flag, GOOGLE_CLOUD_PROJECT env var, or run 'gcloud config set project <id>'")
-		}
-
-		if cfg.Model.Location != "" {
-			clientConfig.Location = cfg.Model.Location
-		}
-
-		return clientConfig, ts, nil
+	case "openai", "anthropic":
+		// Stub: return error until these providers are implemented
+		return nil, fmt.Errorf("provider %q is not yet implemented", m.Provider)
 
 	default:
-		return nil, nil, fmt.Errorf("unknown provider %q: use \"gemini\" (API key) or \"vertex\" (GCP)", cfg.Model.Provider)
+		return nil, fmt.Errorf("unknown provider %q", m.Provider)
 	}
 }
 
-// detectGCPProject tries GOOGLE_CLOUD_PROJECT env var, then gcloud CLI.
-func detectGCPProject() string {
-	if p := os.Getenv("GOOGLE_CLOUD_PROJECT"); p != "" {
-		return p
-	}
-	if p := os.Getenv("GCLOUD_PROJECT"); p != "" {
-		return p
-	}
-	out, err := exec.Command("gcloud", "config", "get-value", "project").Output()
-	if err == nil {
-		if p := strings.TrimSpace(string(out)); p != "" && p != "(unset)" {
-			return p
+// reportAuthStatus prints a startup summary of auth status to w.
+func reportAuthStatus(w *os.File, resource *auth.ResourceAuth, model *auth.ModelAuth, bq *BigQueryComponents, cfg *config.Config) {
+	// Resource plane
+	if resource.Available {
+		project := resource.Project
+		if project == "" {
+			project = "(no project)"
 		}
+		fmt.Fprintf(w, "  ✓ GCP: %s (%s)\n", project, cfg.GCP.Auth.Mode)
+	} else {
+		fmt.Fprintf(w, "  ✗ GCP: not available — platform tools disabled\n")
 	}
-	return ""
-}
 
-// systemPrompt moved to prompt.go as baseSystemPrompt; dynamic version built by BuildSystemPrompt.
+	// Model plane
+	fmt.Fprintf(w, "  ✓ LLM: %s (%s)\n", cfg.Model.Model, model.Provider)
+
+	// BigQuery
+	if bq != nil {
+		fmt.Fprintf(w, "  ✓ BigQuery: %d dataset(s) configured\n", len(cfg.BigQuery.Datasets))
+	} else if !resource.Available {
+		fmt.Fprintf(w, "  ✗ BigQuery: no GCP credentials\n")
+	}
+
+	// Print any warnings
+	for _, w := range resource.Warnings {
+		fmt.Fprintf(os.Stderr, "  ⚠ %s\n", w)
+	}
+	for _, w := range model.Warnings {
+		fmt.Fprintf(os.Stderr, "  ⚠ %s\n", w)
+	}
+}

@@ -19,6 +19,8 @@ type Agent struct {
 	provider         provider.Provider
 	registry         *tools.Registry
 	permissions      *permission.Engine
+	approvals        chan<- types.ApprovalRequest
+	contextInjector  func(string) string
 	governor         *Governor
 	session          *Session
 	events           EventHandler
@@ -34,18 +36,22 @@ type AgentConfig struct {
 	MaxToolCalls int
 	SystemPrompt string
 	Events       EventHandler
+	Approvals    chan<- types.ApprovalRequest
+	ContextInjector func(string) string
 }
 
 // New creates a new Agent from the given configuration.
 func New(cfg AgentConfig) *Agent {
 	maxCalls := cfg.MaxToolCalls
 	if maxCalls <= 0 {
-		maxCalls = 15
+		maxCalls = 200
 	}
 	return &Agent{
 		provider:    cfg.Provider,
 		registry:    cfg.Registry,
 		permissions: cfg.Permissions,
+		approvals:   cfg.Approvals,
+		contextInjector: cfg.ContextInjector,
 		governor:    NewGovernor(maxCalls),
 		session:     NewSession(cfg.SystemPrompt),
 		events:      cfg.Events,
@@ -86,7 +92,21 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 
 		// Stream LLM response
 		a.emit(&types.StreamStartEvent{})
-		stream, err := a.provider.GenerateStream(ctx, a.session.Messages(), declarations)
+		messages := a.session.Messages()
+		if a.contextInjector != nil {
+			if injected := a.contextInjector(userInput); injected != "" {
+				if len(messages) > 0 && messages[0].Role == types.RoleSystem {
+					enriched := make([]types.Message, 0, len(messages)+1)
+					enriched = append(enriched, messages[0], types.SystemMessage(injected))
+					enriched = append(enriched, messages[1:]...)
+					messages = enriched
+				} else {
+					messages = append([]types.Message{types.SystemMessage(injected)}, messages...)
+				}
+			}
+		}
+
+		stream, err := a.provider.GenerateStream(ctx, messages, declarations)
 		if err != nil {
 			a.emit(&types.ErrorEvent{Err: err})
 			return err
@@ -116,8 +136,10 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 			a.lastPromptTokens = response.Usage.PromptTokens
 		}
 
-		// Append assistant message to session
-		a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
+		// Avoid recording an empty assistant turn; Vertex rejects model content with no parts.
+		if response.Text != "" || len(response.ToolCalls) > 0 {
+			a.session.Append(types.AssistantMessage(response.Text, response.ToolCalls))
+		}
 
 		// Emit StreamComplete event before processing tool calls
 		a.emit(&types.StreamCompleteEvent{Content: response.Text, Usage: response.Usage})
@@ -185,6 +207,33 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 	}
 
 	// Permission check
+	baseRisk := riskTool.RiskLevel()
+	if planner, ok := tool.(tools.PermissionPlanner); ok {
+		plan, err := planner.PlanPermission(ctx, call.Input, baseRisk)
+		if err != nil {
+			result := &tools.Result{
+				Content: fmt.Sprintf("Permission planning failed for %s: %v", call.Name, err),
+				IsError: true,
+			}
+			a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: true})
+			return result
+		}
+		if plan != nil {
+			if plan.DenyMessage != "" {
+				result := &tools.Result{
+					Content: plan.DenyMessage,
+					Display: plan.DenyMessage,
+					IsError: true,
+				}
+				a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, Display: result.Display, IsError: true})
+				return result
+			}
+			if plan.RiskOverride != nil {
+				riskTool = &dynamicRiskTool{Tool: tool, risk: *plan.RiskOverride}
+			}
+		}
+	}
+
 	decision := a.permissions.Check(riskTool, call.Input)
 	switch decision {
 	case permission.Deny:
@@ -197,16 +246,45 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		return result
 
 	case permission.Confirm:
-		// Emit permission request and wait for response
-		responseCh := make(chan bool, 1)
-		a.emit(&types.PermissionRequestEvent{
+		if a.approvals == nil {
+			return &tools.Result{
+				Content: "Permission check requires approval handling, but no approver is configured.",
+				IsError: true,
+			}
+		}
+
+		// Send a dedicated approval request instead of using the generic event stream.
+		responseCh := make(chan types.ApprovalDecision, 1)
+		request := types.ApprovalRequest{
 			ToolName:  call.Name,
 			Input:     call.Input,
 			RiskLevel: riskTool.RiskLevel().String(),
 			Response:  responseCh,
-		})
-		approved := <-responseCh
-		if !approved {
+		}
+		select {
+		case a.approvals <- request:
+		case <-ctx.Done():
+			return &tools.Result{
+				Content: fmt.Sprintf("Permission request cancelled for %s.", call.Name),
+				IsError: true,
+			}
+		}
+
+		var decision types.ApprovalDecision
+		select {
+		case decision = <-responseCh:
+		case <-ctx.Done():
+			return &tools.Result{
+				Content: fmt.Sprintf("Permission request cancelled for %s.", call.Name),
+				IsError: true,
+			}
+		}
+		switch decision.Action {
+		case types.ApprovalAllowOnce:
+			// proceed without caching
+		case types.ApprovalAllowToolSession:
+			a.permissions.CacheToolDecision(call.Name, permission.Allow)
+		default:
 			result := &tools.Result{
 				Content: fmt.Sprintf("User denied permission for %s.", call.Name),
 				IsError: true,
@@ -214,8 +292,6 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 			a.emit(&types.ToolEndEvent{Name: call.Name, Content: result.Content, IsError: true})
 			return result
 		}
-		// Cache the approval for this tool+args
-		a.permissions.CacheDecision(call.Name, call.Input, permission.Allow)
 	}
 
 	// Execute the tool

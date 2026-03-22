@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/yogirk/cascade/pkg/types"
 )
 
 // ConfirmModel handles inline permission confirmation prompts.
@@ -16,8 +17,8 @@ type ConfirmModel struct {
 	toolName  string
 	riskLevel string
 	input     json.RawMessage
-	response  chan<- bool
-	cursor    int // 0=Allow, 1=Deny
+	response  chan<- types.ApprovalDecision
+	cursor    int
 }
 
 // NewConfirmModel creates a new confirmation prompt model.
@@ -26,13 +27,13 @@ func NewConfirmModel() ConfirmModel {
 }
 
 // Show activates the confirmation prompt with the given tool details.
-func (c *ConfirmModel) Show(toolName string, input json.RawMessage, riskLevel string, response chan<- bool) {
+func (c *ConfirmModel) Show(toolName string, input json.RawMessage, riskLevel string, response chan<- types.ApprovalDecision) {
 	c.active = true
 	c.toolName = toolName
 	c.input = input
 	c.riskLevel = riskLevel
 	c.response = response
-	c.cursor = 0 // default to Allow
+	c.cursor = 0
 }
 
 // Active returns whether the confirmation prompt is currently shown.
@@ -45,12 +46,7 @@ func (c *ConfirmModel) Height() int {
 	if !c.active {
 		return 0
 	}
-	// Header line + arg summary lines + options line + padding
-	lines := 1 // header: risk badge + tool name
-	lines += len(formatArgsSummary(c.toolName, c.input))
-	lines += 1 // Allow / Deny row
-	lines += 1 // trailing padding
-	return lines
+	return lipgloss.Height(c.View())
 }
 
 // Update handles key presses for the confirmation prompt.
@@ -61,21 +57,24 @@ func (c ConfirmModel) Update(msg tea.Msg) (ConfirmModel, tea.Cmd) {
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "y", "Y":
-			c.sendResponse(true)
+		case "1", "y", "Y":
+			c.sendResponse(types.ApprovalAllowOnce)
+			return c, nil
+		case "2", "a", "A":
+			c.sendResponse(types.ApprovalAllowToolSession)
+			return c, nil
+		case "3", "n", "N", "esc":
+			c.sendResponse(types.ApprovalDeny)
 			return c, nil
 		case "enter":
-			c.sendResponse(c.cursor == 0)
+			c.sendResponse(confirmOptions[c.cursor].action)
 			return c, nil
-		case "n", "N", "esc":
-			c.sendResponse(false)
-			return c, nil
-		case "j", "down", "tab":
-			if c.cursor < 1 {
+		case "j", "down", "tab", "l", "right":
+			if c.cursor < len(confirmOptions)-1 {
 				c.cursor++
 			}
 			return c, nil
-		case "k", "up", "shift+tab":
+		case "k", "up", "shift+tab", "h", "left":
 			if c.cursor > 0 {
 				c.cursor--
 			}
@@ -108,27 +107,42 @@ func (c ConfirmModel) View() string {
 		sb.WriteString("\n")
 	}
 
-	// Action options
-	allowLabel := "  Allow (y)"
-	denyLabel := "  Deny  (n)"
-	if c.cursor == 0 {
-		allowLabel = confirmActiveStyle.Render("▸ Allow (y)")
-		denyLabel = "  " + StatusDimStyle.Render("Deny  (n)")
-	} else {
-		allowLabel = "  " + StatusDimStyle.Render("Allow (y)")
-		denyLabel = confirmActiveStyle.Render("▸ Deny  (n)")
+	sb.WriteString("\n")
+	sb.WriteString(brightConfirmLabel.Render("Choose an action:"))
+	sb.WriteString("\n")
+	labelWidth := 0
+	for idx, option := range confirmOptions {
+		label := fmt.Sprintf("%d. %s", idx+1, option.label)
+		if len(label) > labelWidth {
+			labelWidth = len(label)
+		}
 	}
-	sb.WriteString(allowLabel)
-	sb.WriteString("   ")
-	sb.WriteString(denyLabel)
+	for idx, option := range confirmOptions {
+		label := fmt.Sprintf("%d. %s", idx+1, option.label)
+		paddedLabel := fmt.Sprintf("%-*s", labelWidth, label)
+		desc := StatusDimStyle.Render(option.description)
+		if c.cursor == idx {
+			sb.WriteString(confirmActiveStyle.Render("▸"))
+			sb.WriteString(" ")
+			sb.WriteString(confirmActiveStyle.Render(paddedLabel))
+		} else {
+			sb.WriteString("  ")
+			sb.WriteString(StatusDimStyle.Render(paddedLabel))
+		}
+		sb.WriteString("  ")
+		sb.WriteString(desc)
+		if idx < len(confirmOptions)-1 {
+			sb.WriteString("\n")
+		}
+	}
 
 	return ConfirmBoxStyle.Render(sb.String())
 }
 
 // sendResponse sends the user's decision and deactivates the prompt.
-func (c *ConfirmModel) sendResponse(approved bool) {
+func (c *ConfirmModel) sendResponse(action types.ApprovalAction) {
 	if c.response != nil {
-		c.response <- approved
+		c.response <- types.ApprovalDecision{Action: action}
 	}
 	c.active = false
 	c.toolName = ""
@@ -136,6 +150,18 @@ func (c *ConfirmModel) sendResponse(approved bool) {
 	c.riskLevel = ""
 	c.response = nil
 	c.cursor = 0
+}
+
+type confirmOption struct {
+	label       string
+	description string
+	action      types.ApprovalAction
+}
+
+var confirmOptions = []confirmOption{
+	{label: "Allow once", description: "Run this exact action now", action: types.ApprovalAllowOnce},
+	{label: "Allow tool for session", description: "Skip future prompts for this tool until you exit", action: types.ApprovalAllowToolSession},
+	{label: "Deny", description: "Block this action", action: types.ApprovalDeny},
 }
 
 // formatArgsSummary produces human-readable lines summarizing tool args.
@@ -260,3 +286,4 @@ func abbreviateArgs(input json.RawMessage) string {
 
 // confirmActiveStyle styles the active option in the confirm prompt.
 var confirmActiveStyle = lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+var brightConfirmLabel = lipgloss.NewStyle().Foreground(textColor).Bold(true)

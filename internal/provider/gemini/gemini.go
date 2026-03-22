@@ -117,6 +117,8 @@ func (g *GeminiProvider) GenerateStream(ctx context.Context, messages []types.Me
 						result <- provider.StreamResult{Err: err}
 						return
 					}
+					// Preserve thought signature for thinking models (Gemini 3+)
+					tc.ThoughtSignature = part.ThoughtSignature
 					toolCalls = append(toolCalls, tc)
 				}
 			}
@@ -140,7 +142,7 @@ func buildConfig(messages []types.Message, tools []provider.Declaration) *genai.
 
 	// Extract system instruction from messages
 	for _, msg := range messages {
-		if msg.Role == types.RoleSystem {
+		if msg.Role == types.RoleSystem && strings.TrimSpace(msg.Content) != "" {
 			config.SystemInstruction = &genai.Content{
 				Parts: []*genai.Part{
 					{Text: msg.Content},
@@ -183,6 +185,9 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 			continue
 
 		case types.RoleUser:
+			if strings.TrimSpace(msg.Content) == "" {
+				continue
+			}
 			contents = append(contents, &genai.Content{
 				Role:  "user",
 				Parts: []*genai.Part{{Text: msg.Content}},
@@ -190,7 +195,7 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 
 		case types.RoleAssistant:
 			c := &genai.Content{Role: "model"}
-			if msg.Content != "" {
+			if strings.TrimSpace(msg.Content) != "" {
 				c.Parts = append(c.Parts, &genai.Part{Text: msg.Content})
 			}
 			for _, tc := range msg.ToolCalls {
@@ -204,9 +209,13 @@ func convertToGenAI(msgs []types.Message) []*genai.Content {
 						Name: tc.Name,
 						Args: args,
 					},
+					// Echo back thought signature for thinking models (Gemini 3+)
+					ThoughtSignature: tc.ThoughtSignature,
 				})
 			}
-			contents = append(contents, c)
+			if len(c.Parts) > 0 {
+				contents = append(contents, c)
+			}
 
 		case types.RoleTool:
 			if msg.ToolResult != nil {
