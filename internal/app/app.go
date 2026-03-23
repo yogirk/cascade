@@ -11,7 +11,9 @@ import (
 	"github.com/yogirk/cascade/internal/config"
 	"github.com/yogirk/cascade/internal/permission"
 	"github.com/yogirk/cascade/internal/provider"
+	antprov "github.com/yogirk/cascade/internal/provider/anthropic"
 	"github.com/yogirk/cascade/internal/provider/gemini"
+	oaiprov "github.com/yogirk/cascade/internal/provider/openai"
 	"github.com/yogirk/cascade/internal/tools"
 	"github.com/yogirk/cascade/internal/tools/core"
 	"github.com/yogirk/cascade/pkg/types"
@@ -128,9 +130,19 @@ func buildProvider(ctx context.Context, modelName string, m *auth.ModelAuth) (pr
 		}
 		return prov, nil
 
-	case "openai", "anthropic":
-		// Stub: return error until these providers are implemented
-		return nil, fmt.Errorf("provider %q is not yet implemented", m.Provider)
+	case "openai":
+		prov, err := oaiprov.New(modelName, "")
+		if err != nil {
+			return nil, fmt.Errorf("OpenAI provider setup failed: %w", err)
+		}
+		return prov, nil
+
+	case "anthropic":
+		prov, err := antprov.New(modelName, "")
+		if err != nil {
+			return nil, fmt.Errorf("Anthropic provider setup failed: %w", err)
+		}
+		return prov, nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider %q", m.Provider)

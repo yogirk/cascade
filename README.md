@@ -20,6 +20,9 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 | BigQuery query | Done | Execute SQL, dry-run cost estimation, cost guards |
 | BigQuery schema | Done | Schema cache (SQLite + FTS5), explore, search, context injection |
 | Cost tracking | Done | Per-query cost, session totals, budget warnings, `/cost` |
+| Cost intelligence | Done | `/insights` dashboard, INFORMATION_SCHEMA analysis, inline sparklines + bar charts |
+| Billing export | Done | Cross-project billing queries, auto-discovers export table |
+| Multi-project cache | Done | Unified SQLite cache across projects, no dataset collisions |
 | SQL optimization hints | Done | Partition filters, clustering keys, expensive JOINs |
 | Context compaction | Done | Auto at 80%, `/compact` manual trigger |
 | One-shot mode | Done | `cascade -p "..."` for scripting |
@@ -29,7 +32,7 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| TUI excellence | Input polish, streaming fixes, UX refinements | In progress |
+| Cost recommendations | "This table hasn't been queried in 90 days" — automated insights | Planned |
 | Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Planned |
 | Cloud Logging | Query logs, correlate with pipelines, tail live | Planned |
 | GCS | Browse buckets, read objects, check pipeline artifacts | Planned |
@@ -41,7 +44,7 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 
 ### Prerequisites
 
-- **Go 1.24+**
+- **Go 1.26+**
 - **GCP credentials** (for BigQuery and other GCP tools):
   ```bash
   gcloud auth application-default login
@@ -99,6 +102,8 @@ datasets = ["my_dataset", "analytics"]  # Datasets to cache for schema-aware que
 warn_threshold = 1.0     # Dollar amount to prompt confirmation
 max_query_cost = 10.0    # Dollar amount to block query
 daily_budget_usd = 100.0 # Session budget warning at 80%
+billing_project = ""     # Project with billing export (optional, cross-project OK)
+billing_dataset = ""     # Billing export dataset name (optional)
 
 # Permission mode
 [security]
@@ -120,12 +125,15 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 ### BigQuery
 - `bigquery_query` — Execute SQL with automatic dry-run cost estimation; `dry_run=true` for cost-only
 - `bigquery_schema` — Explore schemas: list datasets, tables, describe columns, FTS5 search
-- Schema cache (SQLite + FTS5) populated from INFORMATION_SCHEMA, with `__TABLES__` fallback
-- Schema-aware context injection for accurate natural language to SQL
+- Multi-project schema cache (unified SQLite + FTS5) — datasets from multiple GCP projects in one index
+- Schema-aware context injection with fully-qualified `project.dataset.table` references
 - SQL optimization hints: missing partition filters, unused clustering keys, expensive JOINs
-- Session cost tracking with budget warnings
-- `/sync [dataset]` — Refresh schema cache on demand
-- `/cost` — View session cost breakdown
+- Cost intelligence: INFORMATION_SCHEMA analysis for query costs, storage, slot utilization
+- Billing export support: cross-project queries with auto-discovery of export table
+- Inline terminal charts: sparklines (▁▂▃▄▅▆▇█) and horizontal bar charts in ocean blue
+- `/insights` — One-command cost health dashboard (query trend, top queries, storage, slots)
+- `/cost` — Styled session cost breakdown
+- `/sync [dataset]` — Refresh schema cache (syncs all configured projects)
 
 ### Auth
 - Two independent auth planes: GCP resources + LLM provider
@@ -138,9 +146,10 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - Sweep glow text effect and per-turn elapsed timer with token counts
 - Welcome screen with connection dashboard (project, datasets, mode)
 - Human-friendly model names in status bar (e.g., "Gemini 3 (Flash)")
+- Interactive model picker (`/model`) with arrow key navigation
 - Custom markdown theme with borderless tables and alternating row dimming
 - Trackpad scroll support
-- `/help`, `/model`, `/compact`, `/sync`, `/cost` slash commands
+- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`
 
 ## Architecture
 
@@ -157,7 +166,7 @@ graph TD
 
         subgraph Tools
             Core[Core Tools<br/><i>read, write, edit, glob, grep, bash</i>]
-            BQTools[BigQuery Tools<br/><i>query, schema</i>]
+            BQTools[BigQuery Tools<br/><i>query, schema, insights</i>]
         end
 
         subgraph Auth[Auth Resolvers]
@@ -167,12 +176,14 @@ graph TD
 
         Agent --> Model
         BQTools --> Resource
-        BQTools --> SchemaCache[Schema Cache<br/><i>SQLite + FTS5</i>]
+        BQTools --> SchemaCache[Schema Cache<br/><i>SQLite + FTS5, multi-project</i>]
+        BQTools --> BillingExport[Billing Export<br/><i>cross-project cost data</i>]
     end
 
     Model --> LLM[LLM Provider<br/><i>Gemini, Claude, GPT, ...</i>]
     Resource --> GCP[GCP APIs<br/><i>BigQuery, GCS, Logging, Composer</i>]
     SchemaCache --> GCP
+    BillingExport --> GCP
 
     style TUI fill:#1e3a5f,stroke:#6B9FFF,color:#F3F4F6
     style Agent fill:#1e3a5f,stroke:#6B9FFF,color:#F3F4F6
@@ -182,6 +193,7 @@ graph TD
     style Resource fill:#2a2510,stroke:#FBBF24,color:#F3F4F6
     style Model fill:#2a2510,stroke:#FBBF24,color:#F3F4F6
     style SchemaCache fill:#1a2e1a,stroke:#34D399,color:#F3F4F6
+    style BillingExport fill:#2a2510,stroke:#FBBF24,color:#F3F4F6
     style LLM fill:#0d1117,stroke:#4B5563,color:#9CA3AF
     style GCP fill:#0d1117,stroke:#4B5563,color:#9CA3AF
     style User fill:#0d1117,stroke:#6B9FFF,color:#F3F4F6

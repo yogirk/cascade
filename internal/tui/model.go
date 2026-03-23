@@ -75,6 +75,7 @@ type Model struct {
 	status        StatusModel
 	spinner       SpinnerModel
 	confirm       ConfirmModel
+	modelPicker   ModelPickerModel
 	welcome       WelcomeModel
 	renderer      *StreamRenderer
 	keys          KeyMap
@@ -113,6 +114,7 @@ func NewModel(application *app.App) Model {
 		status:      status,
 		spinner:     NewSpinnerModel(),
 		confirm:     NewConfirmModel(),
+		modelPicker: NewModelPicker(),
 		welcome:     welcome,
 		renderer:    NewStreamRenderer(),
 		keys:        DefaultKeyMap(),
@@ -235,6 +237,11 @@ func (m Model) View() tea.View {
 		view += indentBlock(m.confirm.View(), contentMargin) + "\n"
 	}
 
+	// Model picker (conditional)
+	if m.modelPicker.Active() {
+		view += indentBlock(m.modelPicker.View(), contentMargin) + "\n"
+	}
+
 	// Input area uses a slightly wider gutter than the transcript.
 	view += indentBlock(m.input.View(), "  ") + "\n"
 
@@ -266,7 +273,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// When the approval modal is visible, it owns keyboard input regardless of
-	// any transient state drift from queued agent events.
+	// any transient state drift from queued agent events. Takes precedence over
+	// the model picker since approvals are time-sensitive.
 	if m.confirm.Active() {
 		var cmd tea.Cmd
 		m.confirm, cmd = m.confirm.Update(msg)
@@ -295,6 +303,37 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		return m, cmd
+	}
+
+	// When the model picker is visible, it owns keyboard input (after confirm).
+	if m.modelPicker.Active() {
+		switch key {
+		case "up", "k":
+			m.modelPicker.MoveUp()
+		case "down", "j":
+			m.modelPicker.MoveDown()
+		case "enter":
+			m.modelPicker.Confirm()
+			if chosen := m.modelPicker.Chosen(); chosen != "" {
+				m.app.Config.Model.Model = chosen
+				if switcher, ok := m.app.Provider.(provider.ModelSwitcher); ok {
+					switcher.SetModel(chosen)
+				}
+				m.status.SetModel(chosen)
+				m.chat.AddMessage(ChatMessage{
+					Role:    "system",
+					Content: "Switched to " + friendlyModelName(chosen) + " (" + chosen + ")",
+				})
+			}
+			m.layout()
+			return m, m.input.Focus()
+		case "esc", "q":
+			m.modelPicker.Dismiss()
+			m.layout()
+			return m, m.input.Focus()
+		}
+		m.layout()
+		return m, nil
 	}
 
 	switch {
@@ -523,6 +562,16 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		m.chat.SetStreamingContent("")
 		m.state = StateIdle
 		m.status.SetToolName("")
+
+		// Persist turn summary (elapsed + tokens) as a dim footer in the chat
+		if summary := m.spinner.TurnSummary(); summary != "" {
+			m.chat.AddMessage(ChatMessage{
+				Role:    "system",
+				Display: "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Render(summary),
+				Content: summary,
+			})
+		}
+
 		m.spinner.EndTurn()
 		m.lastToolStart = nil
 		m.layout()
@@ -602,8 +651,9 @@ func (m *Model) layout() {
 		spinnerHeight = 1
 	}
 	confirmHeight := m.confirm.Height()
+	pickerHeight := m.modelPicker.Height()
 
-	chatHeight := m.height - inputHeight - statusHeight - spinnerHeight - confirmHeight - 1
+	chatHeight := m.height - inputHeight - statusHeight - spinnerHeight - confirmHeight - pickerHeight - 1
 	if chatHeight < 3 {
 		chatHeight = 3
 	}
@@ -755,7 +805,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /clear          Clear conversation",
 			"  /copy           Copy last response",
 			"  /copy-code      Copy last code block",
-			"  /model <name>   Switch LLM model",
+			"  /model          Pick model (interactive)",
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
 			"  /insights       BigQuery cost health dashboard",
@@ -793,12 +843,33 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		}
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: "No code block found in last response."})
 
+	case cmd == "/model":
+		m.modelPicker.Show(m.app.Config.Model.Provider, m.app.Config.Model.Model)
+		if m.modelPicker.Active() {
+			m.input.Blur()
+			m.layout()
+		} else {
+			m.chat.AddMessage(ChatMessage{Role: "system",
+				Content: "Current model: " + m.app.Config.Model.Model + ". No model list available for provider " + m.app.Config.Model.Provider})
+		}
+
 	case strings.HasPrefix(cmd, "/model "):
-		newModel := strings.TrimSpace(strings.TrimPrefix(cmd, "/model "))
-		if newModel == "" {
-			m.chat.AddMessage(ChatMessage{Role: "system", Content: "Current model: " + m.app.Config.Model.Model})
+		input := strings.TrimSpace(strings.TrimPrefix(cmd, "/model "))
+		if input == "" {
+			m.modelPicker.Show(m.app.Config.Model.Provider, m.app.Config.Model.Model)
+			if m.modelPicker.Active() {
+				m.input.Blur()
+				m.layout()
+			}
 			return nil
 		}
+
+		// Resolve by number first, then by name
+		newModel := resolveModelByNumber(m.app.Config.Model.Provider, input)
+		if newModel == "" {
+			newModel = input
+		}
+
 		if !validModelName.MatchString(newModel) {
 			m.chat.AddMessage(ChatMessage{
 				Role:    "error",
@@ -813,11 +884,8 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		m.status.SetModel(newModel)
 		m.chat.AddMessage(ChatMessage{
 			Role:    "system",
-			Content: "Switched model to " + newModel + ".",
+			Content: "Switched to " + friendlyModelName(newModel) + " (" + newModel + ")",
 		})
-
-	case cmd == "/model":
-		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Current model: " + m.app.Config.Model.Model})
 
 	case cmd == "/compact":
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Compacting context..."})

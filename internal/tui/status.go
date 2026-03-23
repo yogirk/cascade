@@ -149,16 +149,24 @@ func parseGPT(s string) string {
 
 // contextWindowSize returns the context window size for known models.
 func contextWindowSize(model string) int32 {
-	// Gemini models context windows
+	s := strings.ToLower(model)
 	switch {
-	case strings.Contains(model, "gemini-2.5"), strings.Contains(model, "gemini-2.0"):
-		return 1_000_000
-	case strings.Contains(model, "gemini-1.5-pro"):
+	// Gemini
+	case strings.Contains(s, "gemini-1.5-pro"):
 		return 2_000_000
-	case strings.Contains(model, "gemini-1.5-flash"):
+	case strings.Contains(s, "gemini"):
 		return 1_000_000
+	// Claude
+	case strings.Contains(s, "claude"), strings.Contains(s, "opus"),
+		strings.Contains(s, "sonnet"), strings.Contains(s, "haiku"):
+		return 200_000
+	// OpenAI
+	case strings.Contains(s, "gpt-4o"), strings.Contains(s, "gpt-4-turbo"):
+		return 128_000
+	case strings.Contains(s, "o3"), strings.Contains(s, "o1"):
+		return 200_000
 	default:
-		return 1_000_000 // safe default
+		return 200_000 // safe default
 	}
 }
 

@@ -55,13 +55,20 @@ func ResolveModelAuth(provider, model string, resource *ResourceAuth,
 }
 
 func autoDetectProvider(resource *ResourceAuth, geminiKeyEnv string) string {
-	// Prefer API key if available (cheaper, no Vertex AI enablement needed)
+	// Prefer Gemini API key if available (cheapest, best for data engineering)
 	if envVal := os.Getenv(geminiKeyEnv); envVal != "" {
 		return "gemini_api"
 	}
-	// Fall back to vertex if GCP auth is available (covers Model Garden too)
+	// Fall back to vertex if GCP auth is available
 	if resource != nil && resource.Available {
 		return "vertex"
+	}
+	// Check for other providers
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return "anthropic"
+	}
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		return "openai"
 	}
 	// Default to vertex (will fail with helpful error if no GCP auth)
 	return "vertex"

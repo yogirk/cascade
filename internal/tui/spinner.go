@@ -116,6 +116,28 @@ func (s *SpinnerModel) AddTurnTokens(prompt, completion int32) {
 	s.turnCompTokens += completion
 }
 
+// TurnSummary returns a summary string of the turn (elapsed + tokens).
+// Call before EndTurn() to capture the stats.
+func (s *SpinnerModel) TurnSummary() string {
+	if s.turnStart.IsZero() {
+		return ""
+	}
+	elapsed := time.Since(s.turnStart)
+	if elapsed < 1*time.Second && s.turnPromptTokens == 0 {
+		return ""
+	}
+
+	var parts []string
+	if elapsed >= 1*time.Second {
+		parts = append(parts, formatElapsed(elapsed))
+	}
+	if s.turnPromptTokens > 0 || s.turnCompTokens > 0 {
+		parts = append(parts, fmt.Sprintf("↑%s ↓%s",
+			formatTokens(s.turnPromptTokens), formatTokens(s.turnCompTokens)))
+	}
+	return strings.Join(parts, " · ")
+}
+
 // EndTurn fully resets the spinner including the turn timer and token counts.
 // Called when the agent turn is complete (DoneEvent).
 func (s *SpinnerModel) EndTurn() {
