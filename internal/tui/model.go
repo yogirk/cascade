@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/yogirk/cascade/internal/app"
 	"github.com/yogirk/cascade/internal/provider"
+	logtool "github.com/yogirk/cascade/internal/tools/logging"
 	"github.com/yogirk/cascade/pkg/types"
 )
 
@@ -809,6 +811,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
 			"  /insights       BigQuery cost health dashboard",
+			"  /logs           Recent warnings and errors",
 			"  /sync           Refresh schema cache",
 			"",
 			"Shortcuts:",
@@ -895,6 +898,50 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 				return ChatMessage{Role: "error", Content: fmt.Sprintf("Compaction failed: %v", err)}
 			}
 			return nil
+		}
+
+	case cmd == "/logs" || strings.HasPrefix(cmd, "/logs "):
+		if m.app.Platform == nil || m.app.Platform.GetLogClient() == nil {
+			m.chat.AddMessage(ChatMessage{Role: "error",
+				Content: "Cloud Logging not available. Check GCP credentials (roles/logging.viewer)."})
+			return nil
+		}
+		// Parse args: /logs [severity] [duration]
+		severity := m.app.Config.Logging.DefaultSeverity
+		if severity == "" {
+			severity = "WARNING"
+		}
+		duration := "1h"
+		if args := strings.TrimSpace(strings.TrimPrefix(cmd, "/logs")); args != "" {
+			parts := strings.Fields(args)
+			if len(parts) >= 1 {
+				severity = strings.ToUpper(parts[0])
+			}
+			if len(parts) >= 2 {
+				duration = parts[1]
+			}
+		}
+		filter := fmt.Sprintf("severity >= %s", severity)
+		maxEntries := m.app.Config.Logging.MaxEntries
+		if maxEntries <= 0 {
+			maxEntries = 50
+		}
+
+		m.status.SetMessage("Fetching logs...")
+		platform := m.app.Platform
+		return func() tea.Msg {
+			lt := logtool.NewLogTool(platform.GetLogClient, platform.ProjectID, maxEntries)
+			input, _ := json.Marshal(map[string]interface{}{
+				"action":   "query",
+				"filter":   filter,
+				"duration": duration,
+				"limit":    maxEntries,
+			})
+			result, _ := lt.Execute(context.Background(), input)
+			if result == nil {
+				return ChatMessage{Role: "error", Content: "Log query returned no result"}
+			}
+			return ChatMessage{Role: "system", Content: result.Content, Display: result.Display}
 		}
 
 	case cmd == "/insights":

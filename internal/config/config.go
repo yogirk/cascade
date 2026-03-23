@@ -11,6 +11,8 @@ type Config struct {
 	Security SecurityConfig `toml:"security"`
 	BigQuery BigQueryConfig `toml:"bigquery"`
 	Cost     CostConfig     `toml:"cost"`
+	Logging  LoggingConfig  `toml:"logging"`
+	GCS      GCSConfig      `toml:"gcs"`
 
 	// Deprecated: use GCP.Auth instead. Kept for backward compatibility.
 	Auth LegacyAuthConfig `toml:"auth"`
@@ -79,6 +81,17 @@ type BillingAuthConfig struct {
 	CredentialsFile string `toml:"credentials_file"` // Path to SA key file (for service_account_key mode)
 }
 
+// LoggingConfig configures Cloud Logging behavior.
+type LoggingConfig struct {
+	DefaultSeverity string `toml:"default_severity"` // Default: "WARNING"
+	MaxEntries      int    `toml:"max_entries"`      // Default: 50
+}
+
+// GCSConfig configures Cloud Storage behavior.
+type GCSConfig struct {
+	MaxReadLines int `toml:"max_read_lines"` // Default: 100
+}
+
 // AgentConfig configures the agent loop behavior.
 type AgentConfig struct {
 	MaxToolCalls int `toml:"max_tool_calls"` // default: 15
@@ -140,6 +153,13 @@ func DefaultConfig() Config {
 			MaxQueryCost:   10.0,
 			DailyBudget:    100.0,
 			MaxDisplayRows: 50,
+		},
+		Logging: LoggingConfig{
+			DefaultSeverity: "WARNING",
+			MaxEntries:      20,
+		},
+		GCS: GCSConfig{
+			MaxReadLines: 100,
 		},
 	}
 }

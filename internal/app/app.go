@@ -27,8 +27,9 @@ type App struct {
 	Permissions *permission.Engine
 	Events      chan types.Event
 	Approvals   chan types.ApprovalRequest
-	BQ          *BigQueryComponents // nil if BQ not configured
-	Resource    *auth.ResourceAuth  // GCP platform credentials
+	BQ          *BigQueryComponents  // nil if BQ not configured
+	Platform    *PlatformComponents  // nil if GCP auth unavailable
+	Resource    *auth.ResourceAuth   // GCP platform credentials
 }
 
 // New creates a fully-wired App from the given configuration.
@@ -83,6 +84,10 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// Register BQ tools alongside core tools
 	registerBQTools(registry, bqComp, &cfg.Cost, events)
 
+	// ── 5b. Platform tools (Logging, GCS) ──
+	platform := initPlatform(ctx, cfg, resource)
+	registerPlatformTools(registry, platform, cfg)
+
 	// ── 6. Permissions ──
 	defaultMode := permission.ParseMode(cfg.Security.DefaultMode)
 	perms := permission.NewEngine(defaultMode)
@@ -116,6 +121,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Events:      events,
 		Approvals:   approvals,
 		BQ:          bqComp,
+		Platform:    platform,
 		Resource:    resource,
 	}, nil
 }

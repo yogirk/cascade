@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"cloud.google.com/go/logging/logadmin"
@@ -118,3 +119,31 @@ func (c *PlatformComponents) Close() {
 	}
 }
 
+// platformStatus returns a summary of available platform tools.
+func platformStatus(comp *PlatformComponents) string {
+	if comp == nil {
+		return ""
+	}
+	var parts []string
+	if comp.LogClient != nil {
+		parts = append(parts, "Logging")
+	}
+	if comp.StorageClient != nil {
+		parts = append(parts, "GCS")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Platform: %s", joinAnd(parts))
+}
+
+func joinAnd(parts []string) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	default:
+		return parts[0] + " + " + parts[1]
+	}
+}

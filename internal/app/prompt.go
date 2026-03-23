@@ -35,7 +35,30 @@ When executing multi-step tasks, briefly narrate what you're doing between tool 
   - Last quarter: WHERE col >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH))
   - Last 6 months: WHERE col >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH))
   - Last year: WHERE col >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH))
-- Use EXTRACT() for year/month grouping, not TIMESTAMP_TRUNC with unsupported parts.`
+- Use EXTRACT() for year/month grouping, not TIMESTAMP_TRUNC with unsupported parts.
+
+## Cloud Logging
+
+Use the cloud_logging tool to query GCP log entries. Do NOT use "gcloud logging read" via bash.
+- action="query" with filter string using Cloud Logging filter syntax
+- action="tail" for most recent entries
+- Filter syntax: severity >= ERROR AND resource.type = "bigquery_dataset" AND timestamp >= "2026-03-23T00:00:00Z"
+- Severity levels: DEFAULT, DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY
+- Common resource types: bigquery_dataset, bigquery_project, gcs_bucket, cloud_function, cloud_composer_environment, dataflow_job
+- Duration: "1h", "24h", "7d" — limits the time range
+- To correlate BQ jobs with logs: filter on resource.type="bigquery_project"
+- Log messages are truncated for display. Do NOT retry the same query with different limits to see "full" content — the truncation is intentional. If you need more detail about a specific error, query INFORMATION_SCHEMA.JOBS_BY_PROJECT for the error_result field instead.
+- INFORMATION_SCHEMA queries are free (metadata views) — no need to dry-run them.
+
+## Cloud Storage
+
+Use the gcs tool to browse buckets and read files. Do NOT use "gsutil" via bash.
+- action="list_buckets" — all buckets in the project
+- action="list_objects" with bucket and optional prefix for directory browsing
+- action="read_object" with bucket and object — reads first 100 lines (text files only)
+- action="object_info" with bucket and object — metadata (size, type, updated)
+- Always check object_info before reading large files
+- For gs:// URLs, extract bucket and object path: gs://my-bucket/path/to/file → bucket="my-bucket", object="path/to/file"`
 
 // costPlaybook is the INFORMATION_SCHEMA knowledge injected when BQ is configured.
 // It teaches the LLM how to answer cost analysis questions.

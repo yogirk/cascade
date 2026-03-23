@@ -27,17 +27,21 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 | Context compaction | Done | Auto at 80%, `/compact` manual trigger |
 | One-shot mode | Done | `cascade -p "..."` for scripting |
 | Gemini provider | Done | API key and Vertex AI |
+| OpenAI provider | Done | GPT-4o, GPT-4 Turbo, o3-mini |
+| Anthropic provider | Done | Claude Sonnet, Opus, Haiku |
+| Interactive model picker | Done | `/model` with arrow key selection |
+| Turn summaries | Done | Elapsed time + token counts persist after each turn |
+| Cloud Logging | Done | Query/tail logs, severity coloring, `/logs` command |
+| Cloud Storage | Done | Browse buckets, list objects, read files (capped), metadata |
 
 ### Roadmap
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Cost recommendations | "This table hasn't been queried in 90 days" — automated insights | Planned |
+| Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Next |
 | Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Planned |
-| Cloud Logging | Query logs, correlate with pipelines, tail live | Planned |
-| GCS | Browse buckets, read objects, check pipeline artifacts | Planned |
+| Cost recommendations | "This table hasn't been queried in 90 days" — automated insights | Planned |
 | dbt integration | Model lineage, run/test commands, source freshness | Planned |
-| Multi-provider | OpenAI, Anthropic (Claude) as LLM providers | Planned |
 | Schema autocomplete | Tab completion for table/column names | Planned |
 
 ## Getting Started
@@ -50,9 +54,10 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
   gcloud auth application-default login
   ```
 - **LLM provider** — one of:
-  - Gemini API key: `export GOOGLE_API_KEY="your-key"` (cheapest, recommended for testing)
+  - Gemini API key: `export GOOGLE_API_KEY="your-key"` (cheapest, recommended)
   - Vertex AI: uses your GCP credentials automatically
-  - OpenAI / Anthropic: coming soon
+  - OpenAI: `export OPENAI_API_KEY="sk-..."` (requires API credits from platform.openai.com)
+  - Anthropic: `export ANTHROPIC_API_KEY="sk-ant-..."` (requires API credits from console.anthropic.com)
 
 ### Install
 
@@ -135,10 +140,24 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - `/cost` — Styled session cost breakdown
 - `/sync [dataset]` — Refresh schema cache (syncs all configured projects)
 
+### Cloud Logging
+- `cloud_logging` — Query and tail GCP log entries with filter syntax
+- Severity coloring: DEBUG (dim) → INFO (blue) → WARNING (amber) → ERROR (red) → CRITICAL (bright red)
+- Smart message extraction from proto/JSON payloads
+- `/logs [severity] [duration]` — Quick access to recent logs (default: WARNING, 1h)
+
+### Cloud Storage
+- `gcs` — Browse buckets, list objects, read files, inspect metadata
+- Directory-style browsing with prefix + delimiter
+- File reading capped at 100 lines (text files only, binary detection)
+- Styled output with line numbers for file content
+
 ### Auth
 - Two independent auth planes: GCP resources + LLM provider
 - GCP: ADC, service account impersonation, or key file
-- LLM: Vertex AI (reuses GCP auth), Gemini API key, OpenAI, Anthropic
+- LLM: Vertex AI (reuses GCP auth), Gemini API key, OpenAI API key, Anthropic API key
+- Auto-detection: checks env vars in order (`GOOGLE_API_KEY` → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → Vertex AI)
+- Note: consumer subscriptions (ChatGPT Pro, Claude Max) cannot be used — separate API keys required
 - Startup report shows what's available
 
 ### UX
@@ -149,7 +168,7 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - Interactive model picker (`/model`) with arrow key navigation
 - Custom markdown theme with borderless tables and alternating row dimming
 - Trackpad scroll support
-- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`
+- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`
 
 ## Architecture
 
@@ -167,6 +186,7 @@ graph TD
         subgraph Tools
             Core[Core Tools<br/><i>read, write, edit, glob, grep, bash</i>]
             BQTools[BigQuery Tools<br/><i>query, schema, insights</i>]
+            PlatformTools[Platform Tools<br/><i>cloud_logging, gcs</i>]
         end
 
         subgraph Auth[Auth Resolvers]
@@ -176,6 +196,7 @@ graph TD
 
         Agent --> Model
         BQTools --> Resource
+        PlatformTools --> Resource
         BQTools --> SchemaCache[Schema Cache<br/><i>SQLite + FTS5, multi-project</i>]
         BQTools --> BillingExport[Billing Export<br/><i>cross-project cost data</i>]
     end
@@ -190,6 +211,7 @@ graph TD
     style Permissions fill:#2d2235,stroke:#818CF8,color:#F3F4F6
     style Core fill:#1a2e1a,stroke:#34D399,color:#F3F4F6
     style BQTools fill:#1a2e1a,stroke:#34D399,color:#F3F4F6
+    style PlatformTools fill:#1a2e1a,stroke:#34D399,color:#F3F4F6
     style Resource fill:#2a2510,stroke:#FBBF24,color:#F3F4F6
     style Model fill:#2a2510,stroke:#FBBF24,color:#F3F4F6
     style SchemaCache fill:#1a2e1a,stroke:#34D399,color:#F3F4F6
