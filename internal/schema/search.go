@@ -4,6 +4,7 @@ import "fmt"
 
 // TableRef represents a table reference returned from FTS5 search.
 type TableRef struct {
+	ProjectID string
 	DatasetID string
 	TableID   string
 	Rank      float64
@@ -11,6 +12,7 @@ type TableRef struct {
 
 // ColumnSearchResult holds a column match from FTS5 search with full metadata.
 type ColumnSearchResult struct {
+	ProjectID   string
 	DatasetID   string
 	TableID     string
 	ColumnName  string
@@ -38,10 +40,10 @@ func (c *Cache) Search(query string, limit int) ([]TableRef, error) {
 	}
 
 	rows, err := c.db.Query(`
-		SELECT dataset_id, table_id, MIN(rank) AS best_rank
+		SELECT project_id, dataset_id, table_id, MIN(rank) AS best_rank
 		FROM schema_fts
 		WHERE schema_fts MATCH ?
-		GROUP BY dataset_id, table_id
+		GROUP BY project_id, dataset_id, table_id
 		ORDER BY best_rank
 		LIMIT ?
 	`, query, limit)
@@ -53,7 +55,7 @@ func (c *Cache) Search(query string, limit int) ([]TableRef, error) {
 	var results []TableRef
 	for rows.Next() {
 		var ref TableRef
-		if err := rows.Scan(&ref.DatasetID, &ref.TableID, &ref.Rank); err != nil {
+		if err := rows.Scan(&ref.ProjectID, &ref.DatasetID, &ref.TableID, &ref.Rank); err != nil {
 			return nil, err
 		}
 		results = append(results, ref)
@@ -80,11 +82,12 @@ func (c *Cache) SearchColumns(query string, limit int) ([]ColumnSearchResult, er
 	}
 
 	rows, err := c.db.Query(`
-		SELECT c.dataset_id, c.table_id, c.column_name,
+		SELECT c.project_id, c.dataset_id, c.table_id, c.column_name,
 		       COALESCE(c.data_type, ''), COALESCE(c.description, '')
 		FROM schema_fts f
 		JOIN columns c
-		    ON f.dataset_id = c.dataset_id AND f.table_id = c.table_id AND f.column_name = c.column_name
+		    ON f.project_id = c.project_id AND f.dataset_id = c.dataset_id
+		    AND f.table_id = c.table_id AND f.column_name = c.column_name
 		WHERE schema_fts MATCH ?
 		ORDER BY f.rank
 		LIMIT ?
@@ -97,7 +100,7 @@ func (c *Cache) SearchColumns(query string, limit int) ([]ColumnSearchResult, er
 	var results []ColumnSearchResult
 	for rows.Next() {
 		var r ColumnSearchResult
-		if err := rows.Scan(&r.DatasetID, &r.TableID, &r.ColumnName, &r.DataType, &r.Description); err != nil {
+		if err := rows.Scan(&r.ProjectID, &r.DatasetID, &r.TableID, &r.ColumnName, &r.DataType, &r.Description); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

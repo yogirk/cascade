@@ -8,7 +8,34 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 
 ## Status
 
-**Pre-alpha** — Foundation, TUI, permissions, and BigQuery integration are complete and tested (54/54 manual test scenarios passing). Platform tools (Composer, Logging, GCS) are next.
+**Pre-alpha — actively developed.** Cascade is usable today for BigQuery workflows. Platform tools and multi-provider support are in progress.
+
+### What's working
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Conversational TUI | Done | Streaming, markdown, trackpad scroll, sweep glow spinner |
+| Core tools | Done | read, write, edit, glob, grep, bash |
+| Permission engine | Done | Risk classification, approval modal, 3 modes |
+| BigQuery query | Done | Execute SQL, dry-run cost estimation, cost guards |
+| BigQuery schema | Done | Schema cache (SQLite + FTS5), explore, search, context injection |
+| Cost tracking | Done | Per-query cost, session totals, budget warnings, `/cost` |
+| SQL optimization hints | Done | Partition filters, clustering keys, expensive JOINs |
+| Context compaction | Done | Auto at 80%, `/compact` manual trigger |
+| One-shot mode | Done | `cascade -p "..."` for scripting |
+| Gemini provider | Done | API key and Vertex AI |
+
+### Roadmap
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| TUI excellence | Input polish, streaming fixes, UX refinements | In progress |
+| Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Planned |
+| Cloud Logging | Query logs, correlate with pipelines, tail live | Planned |
+| GCS | Browse buckets, read objects, check pipeline artifacts | Planned |
+| dbt integration | Model lineage, run/test commands, source freshness | Planned |
+| Multi-provider | OpenAI, Anthropic (Claude) as LLM providers | Planned |
+| Schema autocomplete | Tab completion for table/column names | Planned |
 
 ## Getting Started
 

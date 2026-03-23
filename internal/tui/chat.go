@@ -276,6 +276,9 @@ func renderMessageOpts(msg ChatMessage, width int, showSep bool) string {
 	case "welcome":
 		return msg.Content // Already styled by WelcomeModel
 	case "system":
+		if msg.Display != "" {
+			return msg.Display // Pre-styled (e.g., /insights, /cost)
+		}
 		return SystemMsgStyle.Render(msg.Content)
 	default:
 		return msg.Content

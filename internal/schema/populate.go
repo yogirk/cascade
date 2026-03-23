@@ -63,10 +63,10 @@ func (p *Populator) PopulateDataset(ctx context.Context, datasetID string, progr
 
 	// Step 1: Upsert dataset record.
 	if _, err := db.Exec(`
-		INSERT INTO datasets (dataset_id, project_id, location, description, labels, last_refreshed)
+		INSERT INTO datasets (project_id, dataset_id, location, description, labels, last_refreshed)
 		VALUES (?, ?, '', '', '', ?)
-		ON CONFLICT(dataset_id) DO UPDATE SET last_refreshed = ?
-	`, datasetID, projectID, now, now); err != nil {
+		ON CONFLICT(project_id, dataset_id) DO UPDATE SET last_refreshed = ?
+	`, projectID, datasetID, now, now); err != nil {
 		return fmt.Errorf("upsert dataset: %w", err)
 	}
 
@@ -222,15 +222,15 @@ func (p *Populator) PopulateDataset(ctx context.Context, datasetID string, progr
 		}
 
 		if _, err := tx.Exec(`
-			INSERT INTO tables (dataset_id, table_id, table_type, description, row_count, size_bytes,
+			INSERT INTO tables (project_id, dataset_id, table_id, table_type, description, row_count, size_bytes,
 			                    partition_field, partition_type, clustering_fields, labels, last_modified, last_refreshed)
-			VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, '', 0, ?)
-			ON CONFLICT(dataset_id, table_id) DO UPDATE SET
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, '', 0, ?)
+			ON CONFLICT(project_id, dataset_id, table_id) DO UPDATE SET
 			    table_type=excluded.table_type, description=excluded.description,
 			    row_count=excluded.row_count, size_bytes=excluded.size_bytes,
 			    partition_field=excluded.partition_field, clustering_fields=excluded.clustering_fields,
 			    last_refreshed=excluded.last_refreshed
-		`, datasetID, tbl.Name, tbl.Type, tbl.Description, rowCount, sizeBytes,
+		`, projectID, datasetID, tbl.Name, tbl.Type, tbl.Description, rowCount, sizeBytes,
 			partitionField, string(clusterJSON), now); err != nil {
 			return fmt.Errorf("upsert table %s: %w", tbl.Name, err)
 		}
@@ -252,23 +252,23 @@ func (p *Populator) PopulateDataset(ctx context.Context, datasetID string, progr
 				}
 
 				if _, err := tx.Exec(`
-					INSERT INTO columns (dataset_id, table_id, column_name, data_type, is_nullable,
+					INSERT INTO columns (project_id, dataset_id, table_id, column_name, data_type, is_nullable,
 					                     description, ordinal_position, is_partitioning, clustering_ordinal)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(dataset_id, table_id, column_name) DO UPDATE SET
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					ON CONFLICT(project_id, dataset_id, table_id, column_name) DO UPDATE SET
 					    data_type=excluded.data_type, is_nullable=excluded.is_nullable,
 					    description=excluded.description, ordinal_position=excluded.ordinal_position,
 					    is_partitioning=excluded.is_partitioning, clustering_ordinal=excluded.clustering_ordinal
-				`, datasetID, col.TableName, col.ColumnName, col.DataType, nullable,
+				`, projectID, datasetID, col.TableName, col.ColumnName, col.DataType, nullable,
 					col.Description, col.OrdinalPosition, partitioning, clusterOrd); err != nil {
 					return fmt.Errorf("upsert column %s.%s: %w", col.TableName, col.ColumnName, err)
 				}
 
 				// Insert into FTS index.
 				if _, err := tx.Exec(`
-					INSERT INTO schema_fts (dataset_id, table_id, column_name, description)
-					VALUES (?, ?, ?, ?)
-				`, datasetID, col.TableName, col.ColumnName, col.Description); err != nil {
+					INSERT INTO schema_fts (project_id, dataset_id, table_id, column_name, description)
+					VALUES (?, ?, ?, ?, ?)
+				`, projectID, datasetID, col.TableName, col.ColumnName, col.Description); err != nil {
 					return fmt.Errorf("fts insert %s.%s: %w", col.TableName, col.ColumnName, err)
 				}
 			}

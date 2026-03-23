@@ -13,8 +13,8 @@ import (
 
 // DatasetInfo holds summary metadata for a dataset.
 type DatasetInfo struct {
-	DatasetID   string
 	ProjectID   string
+	DatasetID   string
 	Location    string
 	Description string
 	TableCount  int
@@ -23,6 +23,7 @@ type DatasetInfo struct {
 
 // TableInfo holds summary metadata for a table.
 type TableInfo struct {
+	ProjectID        string
 	DatasetID        string
 	TableID          string
 	TableType        string
@@ -50,7 +51,7 @@ type ColumnInfo struct {
 	ClusteringOrdinal int
 }
 
-// Cache manages a SQLite schema cache with FTS5 for a single GCP project.
+// Cache manages a unified SQLite schema cache with FTS5 across all projects.
 type Cache struct {
 	mu       sync.RWMutex
 	db       *sql.DB
@@ -62,10 +63,9 @@ func NewCache(cacheDir string) *Cache {
 	return &Cache{cacheDir: cacheDir}
 }
 
-// Open opens or creates the SQLite database for the given project ID.
-// The database file is stored at cacheDir/projectID.db.
+// Open opens or creates the unified SQLite database (cascade.db).
 // It enables WAL mode and busy timeout, then runs migrations.
-func (c *Cache) Open(projectID string) error {
+func (c *Cache) Open() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -73,7 +73,7 @@ func (c *Cache) Open(projectID string) error {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 
-	dbPath := filepath.Join(c.cacheDir, projectID+".db")
+	dbPath := filepath.Join(c.cacheDir, "cascade.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return fmt.Errorf("open sqlite: %w", err)
@@ -147,12 +147,12 @@ func (c *Cache) GetDatasets() ([]DatasetInfo, error) {
 	}
 
 	rows, err := c.db.Query(`
-		SELECT d.dataset_id, d.project_id, d.location, COALESCE(d.description, ''),
+		SELECT d.project_id, d.dataset_id, COALESCE(d.location, ''), COALESCE(d.description, ''),
 		       COUNT(t.table_id), COALESCE(SUM(t.size_bytes), 0)
 		FROM datasets d
-		LEFT JOIN tables t ON d.dataset_id = t.dataset_id
-		GROUP BY d.dataset_id
-		ORDER BY d.dataset_id
+		LEFT JOIN tables t ON d.project_id = t.project_id AND d.dataset_id = t.dataset_id
+		GROUP BY d.project_id, d.dataset_id
+		ORDER BY d.project_id, d.dataset_id
 	`)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (c *Cache) GetDatasets() ([]DatasetInfo, error) {
 	var result []DatasetInfo
 	for rows.Next() {
 		var d DatasetInfo
-		if err := rows.Scan(&d.DatasetID, &d.ProjectID, &d.Location, &d.Description, &d.TableCount, &d.TotalBytes); err != nil {
+		if err := rows.Scan(&d.ProjectID, &d.DatasetID, &d.Location, &d.Description, &d.TableCount, &d.TotalBytes); err != nil {
 			return nil, err
 		}
 		result = append(result, d)
@@ -180,7 +180,7 @@ func (c *Cache) GetTables(datasetID string) ([]TableInfo, error) {
 	}
 
 	rows, err := c.db.Query(`
-		SELECT dataset_id, table_id, COALESCE(table_type, ''), COALESCE(description, ''),
+		SELECT project_id, dataset_id, table_id, COALESCE(table_type, ''), COALESCE(description, ''),
 		       COALESCE(row_count, 0), COALESCE(size_bytes, 0),
 		       COALESCE(partition_field, ''), COALESCE(clustering_fields, '[]')
 		FROM tables
@@ -196,7 +196,7 @@ func (c *Cache) GetTables(datasetID string) ([]TableInfo, error) {
 	for rows.Next() {
 		var t TableInfo
 		var clusterJSON string
-		if err := rows.Scan(&t.DatasetID, &t.TableID, &t.TableType, &t.Description,
+		if err := rows.Scan(&t.ProjectID, &t.DatasetID, &t.TableID, &t.TableType, &t.Description,
 			&t.RowCount, &t.SizeBytes, &t.PartitionField, &clusterJSON); err != nil {
 			return nil, err
 		}
@@ -221,13 +221,13 @@ func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) 
 	var td TableDetail
 	var clusterJSON string
 	err := c.db.QueryRow(`
-		SELECT dataset_id, table_id, COALESCE(table_type, ''), COALESCE(description, ''),
+		SELECT project_id, dataset_id, table_id, COALESCE(table_type, ''), COALESCE(description, ''),
 		       COALESCE(row_count, 0), COALESCE(size_bytes, 0),
 		       COALESCE(partition_field, ''), COALESCE(clustering_fields, '[]')
 		FROM tables
 		WHERE dataset_id = ? AND table_id = ?
 	`, datasetID, tableID).Scan(
-		&td.DatasetID, &td.TableID, &td.TableType, &td.Description,
+		&td.ProjectID, &td.DatasetID, &td.TableID, &td.TableType, &td.Description,
 		&td.RowCount, &td.SizeBytes, &td.PartitionField, &clusterJSON,
 	)
 	if err != nil {
@@ -269,7 +269,6 @@ func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) 
 }
 
 // InvalidateTable removes a table and its columns from the cache and FTS index.
-// Used after DDL execution (CREATE/ALTER/DROP) to keep the cache consistent.
 func (c *Cache) InvalidateTable(datasetID, tableID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -284,7 +283,6 @@ func (c *Cache) InvalidateTable(datasetID, tableID string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete from FTS index.
 	if _, err := tx.Exec(
 		"DELETE FROM schema_fts WHERE dataset_id = ? AND table_id = ?",
 		datasetID, tableID,
@@ -292,12 +290,10 @@ func (c *Cache) InvalidateTable(datasetID, tableID string) error {
 		return fmt.Errorf("delete fts: %w", err)
 	}
 
-	// Delete from columns.
 	if _, err := tx.Exec("DELETE FROM columns WHERE dataset_id = ? AND table_id = ?", datasetID, tableID); err != nil {
 		return err
 	}
 
-	// Delete from tables.
 	if _, err := tx.Exec("DELETE FROM tables WHERE dataset_id = ? AND table_id = ?", datasetID, tableID); err != nil {
 		return err
 	}

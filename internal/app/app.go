@@ -91,15 +91,15 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Registry:     registry,
 		Permissions:  perms,
 		MaxToolCalls: cfg.Agent.MaxToolCalls,
-		SystemPrompt: BuildSystemPrompt(bqComp),
+		SystemPrompt: BuildSystemPrompt(bqComp, cfg),
 		Events:       agent.EventChan(events),
 		Approvals:    approvals,
 	})
 
-	// Trigger lazy cache build if datasets are configured
-	if bqComp != nil && len(cfg.BigQuery.Datasets) > 0 {
-		bqComp.EnsureCachePopulated(ctx, cfg.BigQuery.Datasets, events, func() {
-			ag.Session().SetSystemPrompt(BuildSystemPrompt(bqComp))
+	// Trigger lazy cache build for all configured projects/datasets
+	if bqComp != nil {
+		bqComp.EnsureCachePopulated(ctx, events, func() {
+			ag.Session().SetSystemPrompt(BuildSystemPrompt(bqComp, cfg))
 		})
 	}
 

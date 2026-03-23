@@ -10,36 +10,36 @@ import (
 func TestBuildRequestContext_UsesRelevantSchema(t *testing.T) {
 	dir := t.TempDir()
 	cache := schema.NewCache(dir)
-	if err := cache.Open("test-project"); err != nil {
+	if err := cache.Open(); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer cache.Close()
 
 	db := cache.DB()
 	_, err := db.Exec(`
-		INSERT INTO datasets (dataset_id, project_id, location, last_refreshed)
-		VALUES ('analytics', 'test-project', 'US', 1000)
+		INSERT INTO datasets (project_id, dataset_id, location, last_refreshed)
+		VALUES ('test-project', 'analytics', 'US', 1000)
 	`)
 	if err != nil {
 		t.Fatalf("insert dataset: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO tables (dataset_id, table_id, table_type, description, row_count, size_bytes, last_refreshed)
-		VALUES ('analytics', 'customers', 'TABLE', 'customer facts', 100, 1024, 1000)
+		INSERT INTO tables (project_id, dataset_id, table_id, table_type, description, row_count, size_bytes, last_refreshed)
+		VALUES ('test-project', 'analytics', 'customers', 'TABLE', 'customer facts', 100, 1024, 1000)
 	`)
 	if err != nil {
 		t.Fatalf("insert table: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO columns (dataset_id, table_id, column_name, data_type, is_nullable, description, ordinal_position)
-		VALUES ('analytics', 'customers', 'customer_id', 'STRING', 0, 'customer identifier', 1)
+		INSERT INTO columns (project_id, dataset_id, table_id, column_name, data_type, is_nullable, description, ordinal_position)
+		VALUES ('test-project', 'analytics', 'customers', 'customer_id', 'STRING', 0, 'customer identifier', 1)
 	`)
 	if err != nil {
 		t.Fatalf("insert column: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO schema_fts (dataset_id, table_id, column_name, description)
-		VALUES ('analytics', 'customers', 'customer_id', 'customer identifier')
+		INSERT INTO schema_fts (project_id, dataset_id, table_id, column_name, description)
+		VALUES ('test-project', 'analytics', 'customers', 'customer_id', 'customer identifier')
 	`)
 	if err != nil {
 		t.Fatalf("insert fts: %v", err)

@@ -216,13 +216,13 @@ func setupTestCache(t *testing.T) *schema.Cache {
 
 	dir := t.TempDir()
 	cache := schema.NewCache(dir)
-	if err := cache.Open("test-project"); err != nil {
+	if err := cache.Open(); err != nil {
 		t.Fatalf("failed to open cache: %v", err)
 	}
 	t.Cleanup(func() { cache.Close() })
 
 	// Verify the DB file was created.
-	dbPath := filepath.Join(dir, "test-project.db")
+	dbPath := filepath.Join(dir, "cascade.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("db file not created: %v", err)
 	}
@@ -230,16 +230,16 @@ func setupTestCache(t *testing.T) *schema.Cache {
 	db := cache.DB()
 
 	// Insert test dataset (last_refreshed is NOT NULL).
-	_, err := db.Exec(`INSERT INTO datasets (dataset_id, project_id, location, last_refreshed) VALUES (?, ?, ?, ?)`,
-		"test_dataset", "test-project", "US", 1700000000)
+	_, err := db.Exec(`INSERT INTO datasets (project_id, dataset_id, location, last_refreshed) VALUES (?, ?, ?, ?)`,
+		"test-project", "test_dataset", "US", 1700000000)
 	if err != nil {
 		t.Fatalf("insert dataset: %v", err)
 	}
 
 	// Insert test table (last_refreshed is NOT NULL).
-	_, err = db.Exec(`INSERT INTO tables (dataset_id, table_id, table_type, row_count, size_bytes, partition_field, clustering_fields, last_refreshed)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"test_dataset", "users", "TABLE", 1000, 1048576, "created_at", `["user_id"]`, 1700000000)
+	_, err = db.Exec(`INSERT INTO tables (project_id, dataset_id, table_id, table_type, row_count, size_bytes, partition_field, clustering_fields, last_refreshed)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"test-project", "test_dataset", "users", "TABLE", 1000, 1048576, "created_at", `["user_id"]`, 1700000000)
 	if err != nil {
 		t.Fatalf("insert table: %v", err)
 	}
@@ -262,17 +262,17 @@ func setupTestCache(t *testing.T) *schema.Cache {
 		if c.isPart {
 			isPart = 1
 		}
-		_, err := db.Exec(`INSERT INTO columns (dataset_id, table_id, column_name, data_type, is_nullable, ordinal_position, is_partitioning, clustering_ordinal)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			"test_dataset", "users", c.name, c.dtype, 1, c.ord, isPart, c.cluster)
+		_, err := db.Exec(`INSERT INTO columns (project_id, dataset_id, table_id, column_name, data_type, is_nullable, ordinal_position, is_partitioning, clustering_ordinal)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			"test-project", "test_dataset", "users", c.name, c.dtype, 1, c.ord, isPart, c.cluster)
 		if err != nil {
 			t.Fatalf("insert column %s: %v", c.name, err)
 		}
 
 		// Insert into FTS index (schema_fts has: dataset_id, table_id, column_name, description).
-		_, err = db.Exec(`INSERT INTO schema_fts (dataset_id, table_id, column_name, description)
-			VALUES (?, ?, ?, ?)`,
-			"test_dataset", "users", c.name, "")
+		_, err = db.Exec(`INSERT INTO schema_fts (project_id, dataset_id, table_id, column_name, description)
+			VALUES (?, ?, ?, ?, ?)`,
+			"test-project", "test_dataset", "users", c.name, "")
 		if err != nil {
 			t.Fatalf("insert fts %s: %v", c.name, err)
 		}

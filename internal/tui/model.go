@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/yogirk/cascade/internal/app"
 	"github.com/yogirk/cascade/internal/provider"
@@ -660,6 +661,87 @@ func formatDurationSimple(ms int64) string {
 	return fmt.Sprintf("%dm%ds", mins, remSecs)
 }
 
+// renderCostBreakdown renders a styled session cost report.
+func renderCostBreakdown(entries []CostEntry, total, dailyBudget float64) (display string, content string) {
+	costHeaderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
+	costTitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
+	costDimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
+	costLabelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	costValueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
+	costAccentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8"))
+	costSepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
+	costWarnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#D97706"))
+
+	var db, cb strings.Builder
+
+	// Title
+	db.WriteString("\n")
+	db.WriteString("  " + costAccentStyle.Render("≋") + " " +
+		costTitleStyle.Render("Session Cost Breakdown") + "  " +
+		costDimStyle.Render(fmt.Sprintf("%d queries", len(entries))) + "\n")
+	db.WriteString("  " + costSepStyle.Render(strings.Repeat("─", 60)) + "\n\n")
+	cb.WriteString(fmt.Sprintf("Session Cost Breakdown (%d queries)\n\n", len(entries)))
+
+	// Query list
+	for i, entry := range entries {
+		sqlTrunc := strings.ReplaceAll(entry.SQL, "\n", " ")
+		if len(sqlTrunc) > 55 {
+			sqlTrunc = sqlTrunc[:52] + "..."
+		}
+
+		if entry.IsDML {
+			db.WriteString(fmt.Sprintf("  %s  %s\n",
+				costLabelStyle.Render(fmt.Sprintf("#%-2d", i+1)),
+				costDimStyle.Render("DML")))
+		} else {
+			costStr := fmt.Sprintf("$%.2f", entry.Cost)
+			if entry.Cost < 0.01 && entry.Cost > 0 {
+				costStr = "<$0.01"
+			}
+			db.WriteString(fmt.Sprintf("  %s  %s  %s  %s\n",
+				costLabelStyle.Render(fmt.Sprintf("#%-2d", i+1)),
+				costValueStyle.Render(fmt.Sprintf("%-7s", costStr)),
+				costDimStyle.Render(formatBytesSimple(entry.BytesScanned)),
+				costDimStyle.Render(formatDurationSimple(entry.DurationMs))))
+		}
+		db.WriteString("      " + costDimStyle.Render(sqlTrunc) + "\n")
+
+		if i < len(entries)-1 {
+			db.WriteString("\n")
+		}
+
+		// Plain text
+		if entry.IsDML {
+			cb.WriteString(fmt.Sprintf("  #%d  DML  %s\n", i+1, sqlTrunc))
+		} else {
+			cb.WriteString(fmt.Sprintf("  #%d  $%.2f  %s  %s  %s\n",
+				i+1, entry.Cost, formatBytesSimple(entry.BytesScanned),
+				formatDurationSimple(entry.DurationMs), sqlTrunc))
+		}
+	}
+
+	// Total
+	db.WriteString("\n  " + costSepStyle.Render(strings.Repeat("─", 60)) + "\n")
+	db.WriteString("  " + costLabelStyle.Render("Session total  ") +
+		costHeaderStyle.Render(fmt.Sprintf("$%.2f", total)) + "\n")
+	cb.WriteString(fmt.Sprintf("\n  Session total: $%.2f\n", total))
+
+	// Budget
+	if dailyBudget > 0 {
+		pct := total / dailyBudget * 100
+		budgetLine := fmt.Sprintf("  Budget: $%.2f / $%.2f daily (%.1f%%)", total, dailyBudget, pct)
+		if pct >= 80 {
+			db.WriteString("  " + costWarnStyle.Render(budgetLine) + "\n")
+		} else {
+			db.WriteString("  " + costDimStyle.Render(budgetLine) + "\n")
+		}
+		cb.WriteString(budgetLine + "\n")
+	}
+
+	db.WriteString("\n")
+	return db.String(), cb.String()
+}
+
 // handleSlashCommand processes slash commands entered by the user.
 // Returns a tea.Cmd for commands that need async work (e.g., clipboard).
 func (m *Model) handleSlashCommand(text string) tea.Cmd {
@@ -676,6 +758,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /model <name>   Switch LLM model",
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
+			"  /insights       BigQuery cost health dashboard",
 			"  /sync           Refresh schema cache",
 			"",
 			"Shortcuts:",
@@ -746,6 +829,24 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			return nil
 		}
 
+	case cmd == "/insights":
+		if m.app.BQ == nil {
+			m.chat.AddMessage(ChatMessage{Role: "error",
+				Content: "BigQuery not configured. Add [gcp] and [bigquery] sections to ~/.cascade/config.toml"})
+			return nil
+		}
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Gathering insights..."})
+		m.status.SetMessage("Running cost analysis...")
+		location := m.app.Config.BigQuery.Location
+		if location == "" {
+			location = "US"
+		}
+		return func() tea.Msg {
+			report := app.RunInsights(context.Background(), m.app.BQ, location)
+			display, content := app.RenderInsightsReport(report)
+			return ChatMessage{Role: "system", Content: content, Display: display}
+		}
+
 	case cmd == "/cost":
 		if m.costTracker == nil {
 			m.chat.AddMessage(ChatMessage{Role: "system", Content: "No queries executed this session."})
@@ -757,43 +858,8 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			return nil
 		}
 
-		// Build cost breakdown table
-		var sb strings.Builder
-		sb.WriteString("Session Cost Breakdown\n\n")
-		sb.WriteString(fmt.Sprintf("  %-4s %-40s %-12s %-9s %-8s\n", "#", "Query (truncated)", "Bytes", "Cost", "Time"))
-		sb.WriteString(fmt.Sprintf("  %s %s %s %s %s\n",
-			strings.Repeat("-", 4), strings.Repeat("-", 40), strings.Repeat("-", 12),
-			strings.Repeat("-", 9), strings.Repeat("-", 8)))
-
-		for i, entry := range entries {
-			sqlTrunc := entry.SQL
-			if len(sqlTrunc) > 36 {
-				sqlTrunc = sqlTrunc[:33] + "..."
-			}
-			sqlTrunc = strings.ReplaceAll(sqlTrunc, "\n", " ")
-
-			bytesStr := "(DML)"
-			costStr := "(DML)"
-			if !entry.IsDML {
-				bytesStr = formatBytesSimple(entry.BytesScanned)
-				costStr = fmt.Sprintf("$%.2f", entry.Cost)
-			}
-			timeStr := formatDurationSimple(entry.DurationMs)
-			sb.WriteString(fmt.Sprintf("  %-4d %-40s %-12s %-9s %-8s\n",
-				i+1, sqlTrunc, bytesStr, costStr, timeStr))
-		}
-
-		sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("-", 77)))
-		total := m.costTracker.SessionTotal()
-		sb.WriteString(fmt.Sprintf("  %46s Total: $%.2f\n", "", total))
-
-		// Budget line
-		if m.dailyBudget > 0 {
-			pct := total / m.dailyBudget * 100
-			sb.WriteString(fmt.Sprintf("\n  Budget: $%.2f / $%.2f daily (%.1f%%)", total, m.dailyBudget, pct))
-		}
-
-		m.chat.AddMessage(ChatMessage{Role: "system", Content: sb.String()})
+		display, content := renderCostBreakdown(entries, m.costTracker.SessionTotal(), m.dailyBudget)
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: content, Display: display})
 
 	case cmd == "/sync" || strings.HasPrefix(cmd, "/sync "):
 		if m.app.BQ == nil {
@@ -818,19 +884,38 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		m.status.SetMessage("Syncing schema...")
 		return func() tea.Msg {
 			ctx := context.Background()
-			var tableCount int
-			err := m.app.BQ.Populator.PopulateAll(ctx, datasets, func(completed, total int) {
-				tableCount = total
-			})
-			if err != nil {
-				return ChatMessage{Role: "error",
-					Content: fmt.Sprintf("Schema refresh failed: %v", err)}
+			var totalTables int
+
+			if arg := strings.TrimSpace(strings.TrimPrefix(cmd, "/sync")); arg != "" {
+				// Explicit datasets: use main project populator
+				for _, entry := range m.app.BQ.Populators {
+					err := entry.Populator.PopulateAll(ctx, datasets, func(completed, total int) {
+						totalTables = total
+					})
+					if err != nil {
+						return ChatMessage{Role: "error",
+							Content: fmt.Sprintf("Schema refresh failed: %v", err)}
+					}
+					break // use first populator for explicit datasets
+				}
+			} else {
+				// No args: sync all configured projects/datasets
+				for projectID, entry := range m.app.BQ.Populators {
+					err := entry.Populator.PopulateAll(ctx, entry.Datasets, func(completed, total int) {
+						totalTables += total
+					})
+					if err != nil {
+						return ChatMessage{Role: "error",
+							Content: fmt.Sprintf("Schema refresh failed for %s: %v", projectID, err)}
+					}
+				}
 			}
+
 			// Update system prompt with new schema context
-			newPrompt := app.BuildSystemPrompt(m.app.BQ)
+			newPrompt := app.BuildSystemPrompt(m.app.BQ, m.app.Config)
 			m.app.Agent.Session().SetSystemPrompt(newPrompt)
 			return ChatMessage{Role: "system",
-				Content: fmt.Sprintf("Schema cache refreshed — %d tables across %s", tableCount, strings.Join(datasets, ", "))}
+				Content: fmt.Sprintf("Schema cache refreshed — %d tables across %s", totalTables, strings.Join(datasets, ", "))}
 		}
 
 	default:

@@ -90,18 +90,24 @@ func RenderQueryResults(headers []string, rows [][]string, totalRows uint64, max
 		displayRows = displayRows[:maxDisplayRows]
 	}
 
-	t := cascadeTable(headers)
-	for _, row := range displayRows {
-		t.Row(row...)
-	}
-
 	var sb strings.Builder
-	sb.WriteString(t.Render())
 
-	// Overflow indicator
-	if totalRows > uint64(len(displayRows)) {
-		remaining := totalRows - uint64(len(displayRows))
-		sb.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  %d more rows", remaining)))
+	// If too many columns, the styled table becomes unreadable at 120 chars.
+	// Show a compact summary instead of truncated gibberish.
+	if len(headers) > 10 {
+		sb.WriteString(dimStyle.Render(fmt.Sprintf("  %d columns × %d rows (table too wide for display)", len(headers), totalRows)))
+	} else {
+		t := cascadeTable(headers)
+		for _, row := range displayRows {
+			t.Row(row...)
+		}
+		sb.WriteString(t.Render())
+
+		// Overflow indicator
+		if totalRows > uint64(len(displayRows)) {
+			remaining := totalRows - uint64(len(displayRows))
+			sb.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  %d more rows", remaining)))
+		}
 	}
 
 	// Cost/duration footer

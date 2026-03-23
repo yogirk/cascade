@@ -10,7 +10,7 @@ func setupTestCache(t *testing.T) (*Cache, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cache := NewCache(dir)
-	if err := cache.Open("test-project"); err != nil {
+	if err := cache.Open(); err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 	return cache, dir
@@ -20,11 +20,11 @@ func TestCacheOpenClose(t *testing.T) {
 	dir := t.TempDir()
 	cache := NewCache(dir)
 
-	if err := cache.Open("my-project"); err != nil {
+	if err := cache.Open(); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	dbPath := filepath.Join(dir, "my-project.db")
+	dbPath := filepath.Join(dir, "cascade.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Fatalf("DB file not created at %s", dbPath)
 	}
@@ -83,8 +83,8 @@ func TestCacheIsPopulated(t *testing.T) {
 	// Insert a table row.
 	db := cache.DB()
 	_, err := db.Exec(`
-		INSERT INTO tables (dataset_id, table_id, table_type, last_refreshed)
-		VALUES ('ds1', 'tbl1', 'TABLE', 1000)
+		INSERT INTO tables (project_id, dataset_id, table_id, table_type, last_refreshed)
+		VALUES ('test-project', 'ds1', 'tbl1', 'TABLE', 1000)
 	`)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
@@ -101,8 +101,8 @@ func insertTestData(t *testing.T, cache *Cache) {
 
 	// Insert dataset.
 	_, err := db.Exec(`
-		INSERT INTO datasets (dataset_id, project_id, location, description, labels, last_refreshed)
-		VALUES ('analytics', 'test-project', 'US', 'Analytics dataset', '', 1000)
+		INSERT INTO datasets (project_id, dataset_id, location, description, labels, last_refreshed)
+		VALUES ('test-project', 'analytics', 'US', 'Analytics dataset', '', 1000)
 	`)
 	if err != nil {
 		t.Fatalf("insert dataset: %v", err)
@@ -110,9 +110,9 @@ func insertTestData(t *testing.T, cache *Cache) {
 
 	// Insert tables.
 	_, err = db.Exec(`
-		INSERT INTO tables (dataset_id, table_id, table_type, description, row_count, size_bytes,
+		INSERT INTO tables (project_id, dataset_id, table_id, table_type, description, row_count, size_bytes,
 		                    partition_field, clustering_fields, last_refreshed)
-		VALUES ('analytics', 'orders', 'TABLE', 'Customer orders', 1247832, 2147483648,
+		VALUES ('test-project', 'analytics', 'orders', 'TABLE', 'Customer orders', 1247832, 2147483648,
 		        'order_date', '["customer_id","region"]', 1000)
 	`)
 	if err != nil {
@@ -120,9 +120,9 @@ func insertTestData(t *testing.T, cache *Cache) {
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO tables (dataset_id, table_id, table_type, description, row_count, size_bytes,
+		INSERT INTO tables (project_id, dataset_id, table_id, table_type, description, row_count, size_bytes,
 		                    partition_field, clustering_fields, last_refreshed)
-		VALUES ('analytics', 'customers', 'TABLE', 'Customer master data', 50000, 10485760,
+		VALUES ('test-project', 'analytics', 'customers', 'TABLE', 'Customer master data', 50000, 10485760,
 		        '', '[]', 1000)
 	`)
 	if err != nil {
@@ -147,9 +147,9 @@ func insertTestData(t *testing.T, cache *Cache) {
 
 	for _, col := range columns {
 		_, err := db.Exec(`
-			INSERT INTO columns (dataset_id, table_id, column_name, data_type, is_nullable,
+			INSERT INTO columns (project_id, dataset_id, table_id, column_name, data_type, is_nullable,
 			                     description, ordinal_position, is_partitioning, clustering_ordinal)
-			VALUES ('analytics', ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES ('test-project', 'analytics', ?, ?, ?, ?, ?, ?, ?, ?)
 		`, col.table, col.name, col.dtype, col.nullable, col.desc, col.pos, col.partition, col.cluster)
 		if err != nil {
 			t.Fatalf("insert column %s.%s: %v", col.table, col.name, err)
@@ -159,8 +159,8 @@ func insertTestData(t *testing.T, cache *Cache) {
 	// Insert FTS entries for all columns.
 	for _, col := range columns {
 		_, err := db.Exec(`
-			INSERT INTO schema_fts (dataset_id, table_id, column_name, description)
-			VALUES ('analytics', ?, ?, ?)
+			INSERT INTO schema_fts (project_id, dataset_id, table_id, column_name, description)
+			VALUES ('test-project', 'analytics', ?, ?, ?)
 		`, col.table, col.name, col.desc)
 		if err != nil {
 			t.Fatalf("insert fts %s.%s: %v", col.table, col.name, err)
@@ -421,7 +421,7 @@ func TestBuildSchemaContext(t *testing.T) {
 	// Should contain expected formatting elements.
 	checks := []string{
 		"## Available Tables",
-		"### analytics.",
+		"### `test-project.analytics.",
 		"Type: TABLE",
 		"customer_id STRING",
 	}

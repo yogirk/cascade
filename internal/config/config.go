@@ -67,6 +67,16 @@ type CostConfig struct {
 	MaxQueryCost   float64 `toml:"max_query_cost"`   // Dollar amount to block (default: 10.0)
 	DailyBudget    float64 `toml:"daily_budget_usd"` // Daily budget for alerts (default: 100.0)
 	MaxDisplayRows int     `toml:"max_display_rows"` // Max rows in result table (default: 50)
+	BillingProject string          `toml:"billing_project"`  // Project containing billing export (optional, may differ from gcp.project)
+	BillingDataset string          `toml:"billing_dataset"`  // Dataset name for billing export (optional)
+	BillingAuth    BillingAuthConfig `toml:"auth"`            // Optional: override auth for billing project
+}
+
+// BillingAuthConfig configures auth for the billing export project.
+// If not set, ADC (same as main project) is used.
+type BillingAuthConfig struct {
+	Mode            string `toml:"mode"`             // adc (default) | service_account_key
+	CredentialsFile string `toml:"credentials_file"` // Path to SA key file (for service_account_key mode)
 }
 
 // AgentConfig configures the agent loop behavior.
