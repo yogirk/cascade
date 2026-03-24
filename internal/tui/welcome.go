@@ -57,12 +57,11 @@ var (
 // renderCascadeLogo renders the Cascade logo — four bars stepping
 // right, each a pipeline stage.
 func renderCascadeLogo() string {
-	const px = "  " // 2-space pixel unit
+	const px = " " // 1-space pixel unit
 
 	b1 := cascadeBg1.Render
 	b2 := cascadeBg2.Render
 	b3 := cascadeBg3.Render
-	b4 := cascadeBg4.Render
 
 	bar := func(render func(...string) string, n int) string {
 		return render(strings.Repeat(px, n))
@@ -73,7 +72,6 @@ func renderCascadeLogo() string {
 		pad(0) + bar(b1, 5),
 		pad(1) + bar(b2, 5),
 		pad(2) + bar(b3, 5),
-		pad(3) + bar(b4, 5),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -97,12 +95,12 @@ func (w WelcomeModel) View() string {
 	if totalW > 90 {
 		totalW = 90
 	}
-	leftW := totalW * 40 / 100
+	leftW := totalW * 20 / 100
 	rightW := totalW - leftW
 
 	leftStyle := lipgloss.NewStyle().
 		Width(leftW).
-		Padding(1, 2)
+		Padding(1, 2, 1, 4)
 
 	leftPanel := leftStyle.Render(leftContent)
 

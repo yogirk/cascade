@@ -138,7 +138,8 @@ func (t *GCSTool) listBuckets(ctx context.Context) (*tools.Result, error) {
 	it := t.getClient().Buckets(ctx, t.projectID)
 
 	var buckets []BucketInfo
-	for {
+	maxItems := 100
+	for len(buckets) < maxItems {
 		attrs, err := it.Next()
 		if err == iterator.Done {
 			break
@@ -216,10 +217,18 @@ func (t *GCSTool) readObject(ctx context.Context, params gcsInput) (*tools.Resul
 		return &tools.Result{Content: fmt.Sprintf("Object not found: %v", err), IsError: true}, nil
 	}
 
-	// Binary detection
+	// Binary detection — known non-text types are rejected immediately.
+	// For octet-stream (ambiguous), sniff the first bytes for binary signatures.
 	if !isTextContent(attrs.ContentType) {
 		display, content := RenderObjectMeta(attrs, params.Bucket, true)
 		return &tools.Result{Content: content, Display: display}, nil
+	}
+	if strings.ToLower(attrs.ContentType) == "application/octet-stream" {
+		isBinary, err := sniffBinary(ctx, obj)
+		if err == nil && isBinary {
+			display, content := RenderObjectMeta(attrs, params.Bucket, true)
+			return &tools.Result{Content: content, Display: display}, nil
+		}
 	}
 
 	// Size warning (>10MB)
@@ -246,12 +255,16 @@ func (t *GCSTool) readObject(ctx context.Context, params gcsInput) (*tools.Resul
 	defer rc.Close()
 
 	scanner := bufio.NewScanner(rc)
+	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20) // 1MB max line length for NDJSON/wide CSV
 	var lines []string
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 		if len(lines) >= maxLines {
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return &tools.Result{Content: fmt.Sprintf("Error reading object: %v", err), IsError: true}, nil
 	}
 
 	truncated := len(lines) >= maxLines
@@ -271,6 +284,60 @@ func (t *GCSTool) objectInfo(ctx context.Context, params gcsInput) (*tools.Resul
 
 	display, content := RenderObjectMeta(attrs, params.Bucket, false)
 	return &tools.Result{Content: content, Display: display}, nil
+}
+
+// sniffBinary reads the first 512 bytes of an object and checks for known
+// binary file signatures (Parquet, Avro, gzip, Snappy, ORC, Zstandard, protobuf).
+// Returns true if the content appears to be binary.
+func sniffBinary(ctx context.Context, obj *storage.ObjectHandle) (bool, error) {
+	rc, err := obj.NewRangeReader(ctx, 0, 512)
+	if err != nil {
+		return false, err
+	}
+	defer rc.Close()
+
+	buf := make([]byte, 512)
+	n, _ := io.ReadFull(rc, buf)
+	if n < 4 {
+		return false, nil // too small to tell
+	}
+	buf = buf[:n]
+
+	// Known binary magic bytes for data engineering formats
+	signatures := []struct {
+		magic []byte
+		name  string
+	}{
+		{[]byte("PAR1"), "Parquet"},
+		{[]byte("Obj\x01"), "Avro"},
+		{[]byte("ORC"), "ORC"},
+		{[]byte("\x1f\x8b"), "gzip"},
+		{[]byte("\xff\x06\x00\x00sNaPpY"), "Snappy"},
+		{[]byte("\x28\xb5\x2f\xfd"), "Zstandard"},
+		{[]byte("\x89PNG"), "PNG"},
+		{[]byte("\xff\xd8\xff"), "JPEG"},
+		{[]byte("PK\x03\x04"), "ZIP"},
+		{[]byte("%PDF"), "PDF"},
+	}
+
+	for _, sig := range signatures {
+		if len(buf) >= len(sig.magic) && string(buf[:len(sig.magic)]) == string(sig.magic) {
+			return true, nil
+		}
+	}
+
+	// Heuristic: if >30% of the first 512 bytes are non-printable, likely binary
+	nonPrintable := 0
+	for _, b := range buf {
+		if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
+			nonPrintable++
+		}
+	}
+	if float64(nonPrintable)/float64(len(buf)) > 0.30 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // isTextContent returns true for text-readable content types.

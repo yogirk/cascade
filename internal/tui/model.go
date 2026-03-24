@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/yogirk/cascade/internal/app"
+	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/provider"
 	logtool "github.com/yogirk/cascade/internal/tools/logging"
 	"github.com/yogirk/cascade/pkg/types"
@@ -810,6 +811,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /model          Pick model (interactive)",
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
+			"  /morning        Platform health briefing",
 			"  /insights       BigQuery cost health dashboard",
 			"  /logs           Recent warnings and errors",
 			"  /sync           Refresh schema cache",
@@ -942,6 +944,26 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 				return ChatMessage{Role: "error", Content: "Log query returned no result"}
 			}
 			return ChatMessage{Role: "system", Content: result.Content, Display: result.Display}
+		}
+
+	case cmd == "/morning" || strings.HasPrefix(cmd, "/morning "):
+		if m.app.Morning == nil {
+			m.chat.AddMessage(ChatMessage{Role: "error",
+				Content: "No platform sources available. Configure GCP credentials and BigQuery to use /morning."})
+			return nil
+		}
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: "Gathering platform intelligence..."})
+		m.status.SetMessage("Running morning briefing...")
+		since := 12 * time.Hour
+		if args := strings.TrimSpace(strings.TrimPrefix(cmd, "/morning")); args != "" {
+			if d, err := time.ParseDuration(args); err == nil {
+				since = d
+			}
+		}
+		return func() tea.Msg {
+			report := m.app.Morning.Collect(context.Background(), since)
+			display, content := plat.RenderMorningReport(report)
+			return ChatMessage{Role: "system", Content: content, Display: display}
 		}
 
 	case cmd == "/insights":

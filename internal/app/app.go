@@ -14,6 +14,7 @@ import (
 	antprov "github.com/yogirk/cascade/internal/provider/anthropic"
 	"github.com/yogirk/cascade/internal/provider/gemini"
 	oaiprov "github.com/yogirk/cascade/internal/provider/openai"
+	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/tools"
 	"github.com/yogirk/cascade/internal/tools/core"
 	"github.com/yogirk/cascade/pkg/types"
@@ -30,6 +31,8 @@ type App struct {
 	BQ          *BigQueryComponents  // nil if BQ not configured
 	Platform    *PlatformComponents  // nil if GCP auth unavailable
 	Resource    *auth.ResourceAuth   // GCP platform credentials
+	Morning     *plat.PlatformCollector // nil if no sources available
+	CascadeMD   *config.CascadeMD      // nil if no CASCADE.md found
 }
 
 // New creates a fully-wired App from the given configuration.
@@ -110,7 +113,17 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		})
 	}
 
-	// ── 8. Startup report ──
+	// ── 8. CASCADE.md project config ──
+	cascadeMD, err := config.LoadCascadeMD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ CASCADE.md parse error: %v (using defaults)\n", err)
+		cascadeMD = nil
+	}
+
+	// ── 9. Morning collector (platform intelligence) ──
+	morning := buildMorningCollector(bqComp, platform, cfg, cascadeMD)
+
+	// ── 10. Startup report ──
 	reportAuthStatus(os.Stderr, resource, modelAuth, bqComp, cfg)
 
 	return &App{
@@ -123,6 +136,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		BQ:          bqComp,
 		Platform:    platform,
 		Resource:    resource,
+		Morning:     morning,
+		CascadeMD:   cascadeMD,
 	}, nil
 }
 
@@ -179,10 +194,10 @@ func reportAuthStatus(w *os.File, resource *auth.ResourceAuth, model *auth.Model
 	}
 
 	// Print any warnings
-	for _, w := range resource.Warnings {
-		fmt.Fprintf(os.Stderr, "  ⚠ %s\n", w)
+	for _, warning := range resource.Warnings {
+		fmt.Fprintf(w, "  ⚠ %s\n", warning)
 	}
-	for _, w := range model.Warnings {
-		fmt.Fprintf(os.Stderr, "  ⚠ %s\n", w)
+	for _, warning := range model.Warnings {
+		fmt.Fprintf(w, "  ⚠ %s\n", warning)
 	}
 }

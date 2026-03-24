@@ -28,7 +28,7 @@ func BuildSchemaContext(cache *Cache, query string, maxTables int) (string, erro
 	b.WriteString("## Available Tables\n\n")
 
 	for _, ref := range refs {
-		detail, err := cache.GetTableDetail(ref.DatasetID, ref.TableID)
+		detail, err := cache.GetTableDetail(ref.ProjectID, ref.DatasetID, ref.TableID)
 		if err != nil {
 			continue // Skip tables that can't be retrieved.
 		}

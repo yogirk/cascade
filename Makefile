@@ -10,7 +10,12 @@ test-short:
 	go test ./internal/... -short -count=1
 
 lint:
-	go vet ./...
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not installed, falling back to go vet"; \
+		go vet ./...; \
+	fi
 
 clean:
 	rm -rf bin/

@@ -8,7 +8,7 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 
 ## Status
 
-**Pre-alpha — actively developed.** Cascade is usable today for BigQuery workflows. Platform tools and multi-provider support are in progress.
+**Pre-alpha — actively developed.** Cascade is usable today for BigQuery workflows, Cloud Logging, GCS, and platform intelligence (`/morning` briefing). Multi-provider support (Gemini, OpenAI, Anthropic) is live.
 
 ### What's working
 
@@ -33,12 +33,13 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 | Turn summaries | Done | Elapsed time + token counts persist after each turn |
 | Cloud Logging | Done | Query/tail logs, severity coloring, `/logs` command |
 | Cloud Storage | Done | Browse buckets, list objects, read files (capped), metadata |
+| Platform Intelligence | Done | `/morning` briefing, cross-service signal correlation, CASCADE.md project config |
+| CASCADE.md | Done | Per-project config: critical tables, refresh schedules, alert thresholds |
 
 ### Roadmap
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Next |
 | Cloud Composer | Airflow DAG inspection, task logs, trigger runs | Planned |
 | Cost recommendations | "This table hasn't been queried in 90 days" — automated insights | Planned |
 | dbt integration | Model lineage, run/test commands, source freshness | Planned |
@@ -152,6 +153,15 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - File reading capped at 100 lines (text files only, binary detection)
 - Styled output with line numbers for file content
 
+### Platform Intelligence
+- `/morning` — Morning briefing: "3 things need attention before standup"
+- Cross-service signal collection: BQ job failures, Cloud Logging errors, GCS freshness, schema staleness
+- Union-find correlation groups related signals into incidents (e.g., failed job + stale table = one incident)
+- Signals ranked by severity → blast radius → recency
+- Graceful degradation: each source independently optional
+- `CASCADE.md` — Per-project config (like CLAUDE.md) defining critical tables, expected refresh schedules, alert thresholds
+- Platform debugging playbook teaches the LLM cross-service investigation patterns
+
 ### Auth
 - Two independent auth planes: GCP resources + LLM provider
 - GCP: ADC, service account impersonation, or key file
@@ -168,7 +178,7 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - Interactive model picker (`/model`) with arrow key navigation
 - Custom markdown theme with borderless tables and alternating row dimming
 - Trackpad scroll support
-- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`
+- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`, `/morning`
 
 ## Architecture
 
@@ -189,6 +199,11 @@ graph TD
             PlatformTools[Platform Tools<br/><i>cloud_logging, gcs</i>]
         end
 
+        Morning[Platform Intelligence<br/><i>/morning briefing, signal correlation</i>]
+        Morning --> BQTools
+        Morning --> PlatformTools
+        Morning --> SchemaCache
+
         subgraph Auth[Auth Resolvers]
             Resource[Resource Plane<br/><i>ADC / impersonation / SA key</i>]
             Model[Model Plane<br/><i>vertex / gemini_api / openai / anthropic</i>]
@@ -206,6 +221,7 @@ graph TD
     SchemaCache --> GCP
     BillingExport --> GCP
 
+    style Morning fill:#1e3a5f,stroke:#38BDF8,color:#F3F4F6
     style TUI fill:#1e3a5f,stroke:#6B9FFF,color:#F3F4F6
     style Agent fill:#1e3a5f,stroke:#6B9FFF,color:#F3F4F6
     style Permissions fill:#2d2235,stroke:#818CF8,color:#F3F4F6
@@ -227,7 +243,7 @@ graph TD
 make build      # Build binary to bin/cascade
 make test       # Run all tests with race detector
 make test-short # Run unit tests only
-make lint       # Run go vet
+make lint       # Run golangci-lint (falls back to go vet)
 make clean      # Remove build artifacts
 ```
 

@@ -31,7 +31,6 @@ internal/
   permission/                 Permission engine: ASK / READ_ONLY / FULL_ACCESS modes
   bigquery/                   BQ client wrapper, SQL classification, cost tracking
   schema/                     SQLite + FTS5 schema cache from INFORMATION_SCHEMA
-  persist/                    Session persistence (SQLite, auto-save, resume)
   config/                     TOML config loading with env/flag overrides
   auth/                       GCP resource auth + LLM provider auth
   tui/                        Bubble Tea TUI (model, chat, input, status, spinner, confirm)
@@ -87,21 +86,6 @@ Sections: `[[critical_tables]]`, `[[schedules]]`, `[thresholds]`, `playbook`
 
 Used by `/morning` to determine which tables are critical, expected refresh intervals,
 and custom alert thresholds.
-
-## Design System
-
-Always read DESIGN.md before making any visual or UI decisions.
-All colors, spacing, tool bullet semantics, and interaction patterns are defined there.
-Do not deviate without explicit user approval.
-In QA mode, flag any code that doesn't match DESIGN.md.
-
-## No AI Attribution
-
-Never include AI references in any git or GitHub artifact:
-- No `Co-Authored-By` trailers mentioning AI, Claude, Anthropic, OpenAI, etc.
-- No "Generated with" footers in PR/issue bodies
-- No mentions of AI, LLM, Claude, Codex, GPT, or Anthropic in commit messages, PR titles, or PR bodies
-- No AI emoji markers in PR descriptions
 
 ## Config
 

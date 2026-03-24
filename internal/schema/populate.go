@@ -188,6 +188,15 @@ func (p *Populator) PopulateDataset(ctx context.Context, datasetID string, progr
 	}
 	defer tx.Rollback()
 
+	// Clear stale FTS5 rows for this dataset before re-inserting.
+	// FTS5 virtual tables don't support ON CONFLICT, so we must DELETE first.
+	if _, err := tx.Exec(
+		"DELETE FROM schema_fts WHERE project_id = ? AND dataset_id = ?",
+		projectID, datasetID,
+	); err != nil {
+		return fmt.Errorf("clear fts for %s.%s: %w", projectID, datasetID, err)
+	}
+
 	// Group columns by table for clustering field detection.
 	columnsByTable := make(map[string][]columnRow)
 	for _, col := range columnRows {

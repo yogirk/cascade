@@ -31,16 +31,18 @@ type queryExecutor interface {
 type QueryTool struct {
 	client      queryExecutor
 	cache       *schema.Cache
+	projectID   string
 	costTracker *bq.CostTracker
 	costConfig  *config.CostConfig
 	events      chan types.Event
 }
 
 // NewQueryTool creates a new BigQuery query tool.
-func NewQueryTool(client *bq.Client, cache *schema.Cache, costTracker *bq.CostTracker, costConfig *config.CostConfig, events chan types.Event) *QueryTool {
+func NewQueryTool(client *bq.Client, cache *schema.Cache, projectID string, costTracker *bq.CostTracker, costConfig *config.CostConfig, events chan types.Event) *QueryTool {
 	return &QueryTool{
 		client:      client,
 		cache:       cache,
+		projectID:   projectID,
 		costTracker: costTracker,
 		costConfig:  costConfig,
 		events:      events,
@@ -76,15 +78,28 @@ func (t *QueryTool) RiskLevel() permission.RiskLevel {
 	return permission.RiskDestructive
 }
 
-// PlanPermission allows high-cost read-only queries to require approval and
-// blocks queries above the configured hard cap before execution.
+// PlanPermission classifies SQL risk and applies cost-aware gating.
+// First classifies the SQL statement to determine the real risk (handling CTEs etc.),
+// then for read-only queries checks cost thresholds.
 func (t *QueryTool) PlanPermission(ctx context.Context, input json.RawMessage, baseRisk permission.RiskLevel) (*tools.PermissionPlan, error) {
-	if t.client == nil || t.costConfig == nil || baseRisk != permission.RiskReadOnly {
+	var params queryInput
+	if err := json.Unmarshal(input, &params); err != nil {
 		return nil, nil
 	}
 
-	var params queryInput
-	if err := json.Unmarshal(input, &params); err != nil {
+	// Step 1: Classify the actual SQL risk (handles CTE-wrapped DML, etc.)
+	sqlRisk := baseRisk
+	if params.SQL != "" {
+		sqlRisk = bq.ClassifySQLRisk(params.SQL)
+	}
+
+	// If the SQL is not read-only (e.g., CTE-wrapped INSERT), override risk and return.
+	if sqlRisk > permission.RiskReadOnly {
+		return &tools.PermissionPlan{RiskOverride: &sqlRisk}, nil
+	}
+
+	// Step 2: Cost-aware gating for read-only queries
+	if t.client == nil || t.costConfig == nil {
 		return nil, nil
 	}
 	if params.DryRun || strings.TrimSpace(params.SQL) == "" {
@@ -188,7 +203,7 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 
 	// Step 5b: Analyze query for optimization suggestions.
 	if t.cache != nil {
-		adapter := &cacheSchemaAdapter{cache: t.cache}
+		adapter := &cacheSchemaAdapter{cache: t.cache, projectID: t.projectID}
 		if optHints := bq.AnalyzeQuery(params.SQL, adapter); len(optHints) > 0 {
 			hintDisplay, hintContent := RenderOptimizationHints(optHints)
 			display += hintDisplay
@@ -238,18 +253,19 @@ func (t *QueryTool) invalidateCacheForSQL(sql string) {
 	if len(matches) >= 3 {
 		datasetID := matches[1]
 		tableID := matches[2]
-		_ = t.cache.InvalidateTable(datasetID, tableID)
+		_ = t.cache.InvalidateTable(t.projectID, datasetID, tableID)
 	}
 }
 
 // cacheSchemaAdapter adapts schema.Cache to bq.SchemaLookup.
 // This bridges the schema and bigquery packages without creating a circular import.
 type cacheSchemaAdapter struct {
-	cache *schema.Cache
+	cache     *schema.Cache
+	projectID string
 }
 
 func (a *cacheSchemaAdapter) GetTableMeta(datasetID, tableID string) (*bq.TableMeta, error) {
-	detail, err := a.cache.GetTableDetail(datasetID, tableID)
+	detail, err := a.cache.GetTableDetail(a.projectID, datasetID, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +279,7 @@ func (a *cacheSchemaAdapter) GetTableMeta(datasetID, tableID string) (*bq.TableM
 }
 
 func (a *cacheSchemaAdapter) ListTableMeta(datasetID string) ([]bq.TableMeta, error) {
-	tables, err := a.cache.GetTables(datasetID)
+	tables, err := a.cache.GetTables(a.projectID, datasetID)
 	if err != nil {
 		return nil, err
 	}

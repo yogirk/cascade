@@ -170,8 +170,8 @@ func (c *Cache) GetDatasets() ([]DatasetInfo, error) {
 	return result, rows.Err()
 }
 
-// GetTables returns summary info for all tables in a dataset.
-func (c *Cache) GetTables(datasetID string) ([]TableInfo, error) {
+// GetTables returns summary info for all tables in a dataset within a project.
+func (c *Cache) GetTables(projectID, datasetID string) ([]TableInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -184,9 +184,9 @@ func (c *Cache) GetTables(datasetID string) ([]TableInfo, error) {
 		       COALESCE(row_count, 0), COALESCE(size_bytes, 0),
 		       COALESCE(partition_field, ''), COALESCE(clustering_fields, '[]')
 		FROM tables
-		WHERE dataset_id = ?
+		WHERE project_id = ? AND dataset_id = ?
 		ORDER BY table_id
-	`, datasetID)
+	`, projectID, datasetID)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (c *Cache) GetTables(datasetID string) ([]TableInfo, error) {
 }
 
 // GetTableDetail returns full table metadata including columns.
-func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) {
+func (c *Cache) GetTableDetail(projectID, datasetID, tableID string) (*TableDetail, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -225,8 +225,8 @@ func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) 
 		       COALESCE(row_count, 0), COALESCE(size_bytes, 0),
 		       COALESCE(partition_field, ''), COALESCE(clustering_fields, '[]')
 		FROM tables
-		WHERE dataset_id = ? AND table_id = ?
-	`, datasetID, tableID).Scan(
+		WHERE project_id = ? AND dataset_id = ? AND table_id = ?
+	`, projectID, datasetID, tableID).Scan(
 		&td.ProjectID, &td.DatasetID, &td.TableID, &td.TableType, &td.Description,
 		&td.RowCount, &td.SizeBytes, &td.PartitionField, &clusterJSON,
 	)
@@ -242,9 +242,9 @@ func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) 
 		SELECT column_name, data_type, COALESCE(is_nullable, 0), COALESCE(description, ''),
 		       COALESCE(ordinal_position, 0), COALESCE(is_partitioning, 0), COALESCE(clustering_ordinal, 0)
 		FROM columns
-		WHERE dataset_id = ? AND table_id = ?
+		WHERE project_id = ? AND dataset_id = ? AND table_id = ?
 		ORDER BY ordinal_position
-	`, datasetID, tableID)
+	`, projectID, datasetID, tableID)
 	if err != nil {
 		return nil, fmt.Errorf("get columns: %w", err)
 	}
@@ -269,7 +269,7 @@ func (c *Cache) GetTableDetail(datasetID, tableID string) (*TableDetail, error) 
 }
 
 // InvalidateTable removes a table and its columns from the cache and FTS index.
-func (c *Cache) InvalidateTable(datasetID, tableID string) error {
+func (c *Cache) InvalidateTable(projectID, datasetID, tableID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -284,17 +284,17 @@ func (c *Cache) InvalidateTable(datasetID, tableID string) error {
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(
-		"DELETE FROM schema_fts WHERE dataset_id = ? AND table_id = ?",
-		datasetID, tableID,
+		"DELETE FROM schema_fts WHERE project_id = ? AND dataset_id = ? AND table_id = ?",
+		projectID, datasetID, tableID,
 	); err != nil {
 		return fmt.Errorf("delete fts: %w", err)
 	}
 
-	if _, err := tx.Exec("DELETE FROM columns WHERE dataset_id = ? AND table_id = ?", datasetID, tableID); err != nil {
+	if _, err := tx.Exec("DELETE FROM columns WHERE project_id = ? AND dataset_id = ? AND table_id = ?", projectID, datasetID, tableID); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec("DELETE FROM tables WHERE dataset_id = ? AND table_id = ?", datasetID, tableID); err != nil {
+	if _, err := tx.Exec("DELETE FROM tables WHERE project_id = ? AND dataset_id = ? AND table_id = ?", projectID, datasetID, tableID); err != nil {
 		return err
 	}
 

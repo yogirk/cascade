@@ -118,7 +118,42 @@ Key columns: period_start, reservation_id, baseline_slots, autoscale.current_slo
 - Cloned/snapshot tables may show overestimated storage (billing is delta-correct)
 - For multi-statement queries, the parent SCRIPT row contains total slot_ms — exclude it when summing child jobs`
 
-// BuildSystemPrompt creates the system prompt with BQ context, cost playbook, and optional billing info.
+const debugPlaybook = `
+
+## Platform Debugging Playbook
+
+When investigating platform issues (failed jobs, stale data, errors), follow these patterns:
+
+### Failed BigQuery Jobs
+1. Query region-REGION.INFORMATION_SCHEMA.JOBS_BY_PROJECT for jobs WHERE error_result IS NOT NULL AND creation_time > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 12 HOUR)
+2. Check error_result.reason and error_result.message for the root cause
+3. Check referenced_tables and destination_table to understand impact
+4. Cross-reference with Cloud Logging: resource.type="bigquery_resource" AND severity>=ERROR
+
+### Stale Tables
+1. Check when a table was last modified using bigquery_schema describe_table
+2. Find the most recent job that wrote to it: query JOBS_BY_PROJECT WHERE destination_table.table_id = '{table}' ORDER BY creation_time DESC LIMIT 5
+3. If the load/query job failed → that explains the staleness
+4. If no recent job exists → the pipeline that populates it may have stopped running
+
+### Data Lineage (Manual Trace)
+1. For a stale table: find what job populates it via JOBS_BY_PROJECT destination_table
+2. Check that job's referenced_tables → those are upstream dependencies
+3. Check if upstream GCS objects exist: use gcs list_objects with expected prefix/date
+4. If GCS objects are missing → trace to the process that creates them
+
+### Cross-Service Investigation
+- BQ job failed → check Cloud Logging for the same time window and resource
+- Table stale → check if the writing job exists and succeeded in JOBS_BY_PROJECT
+- GCS objects missing → check if the producing pipeline ran (Cloud Logging for the service)
+- After /morning surfaces issues, offer to investigate any specific incident in detail
+
+### Presenting Findings
+- Lead with the most impactful issue (highest blast radius)
+- For each issue: one sentence summary, then offer to investigate further
+- When correlating across services, explain the chain: "The table is stale because the load job failed because the source GCS file is missing"`
+
+// BuildSystemPrompt creates the system prompt with BQ context, cost playbook, debug playbook, and optional billing info.
 func BuildSystemPrompt(bqComp *BigQueryComponents, cfg *config.Config) string {
 	var sb strings.Builder
 	sb.WriteString(baseSystemPrompt)
@@ -134,6 +169,10 @@ func BuildSystemPrompt(bqComp *BigQueryComponents, cfg *config.Config) string {
 	}
 	playbook := strings.ReplaceAll(costPlaybook, "REGION", location)
 	sb.WriteString(playbook)
+
+	// Inject debug playbook with actual region
+	dbgPlaybook := strings.ReplaceAll(debugPlaybook, "REGION", location)
+	sb.WriteString(dbgPlaybook)
 
 	// Inject billing export context if configured
 	if cfg.Cost.BillingProject != "" && cfg.Cost.BillingDataset != "" {

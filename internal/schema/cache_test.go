@@ -174,7 +174,7 @@ func TestCacheInsertAndGetTables(t *testing.T) {
 
 	insertTestData(t, cache)
 
-	tables, err := cache.GetTables("analytics")
+	tables, err := cache.GetTables("test-project", "analytics")
 	if err != nil {
 		t.Fatalf("GetTables: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestCacheGetTableDetail(t *testing.T) {
 
 	insertTestData(t, cache)
 
-	detail, err := cache.GetTableDetail("analytics", "orders")
+	detail, err := cache.GetTableDetail("test-project", "analytics", "orders")
 	if err != nil {
 		t.Fatalf("GetTableDetail: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestCacheInvalidateTable(t *testing.T) {
 	insertTestData(t, cache)
 
 	// Verify orders exists.
-	tables, err := cache.GetTables("analytics")
+	tables, err := cache.GetTables("test-project", "analytics")
 	if err != nil {
 		t.Fatalf("GetTables before invalidate: %v", err)
 	}
@@ -281,12 +281,12 @@ func TestCacheInvalidateTable(t *testing.T) {
 	}
 
 	// Invalidate orders.
-	if err := cache.InvalidateTable("analytics", "orders"); err != nil {
+	if err := cache.InvalidateTable("test-project", "analytics", "orders"); err != nil {
 		t.Fatalf("InvalidateTable: %v", err)
 	}
 
 	// Check orders is gone.
-	tables, err = cache.GetTables("analytics")
+	tables, err = cache.GetTables("test-project", "analytics")
 	if err != nil {
 		t.Fatalf("GetTables after invalidate: %v", err)
 	}

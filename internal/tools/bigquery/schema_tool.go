@@ -111,7 +111,7 @@ func (t *SchemaTool) listTables(dataset string) (*tools.Result, error) {
 		return &tools.Result{Content: "dataset parameter is required for list_tables action", IsError: true}, nil
 	}
 
-	tables, err := t.cache.GetTables(dataset)
+	tables, err := t.cache.GetTables(t.projectID, dataset)
 	if err != nil {
 		return &tools.Result{Content: fmt.Sprintf("Failed to list tables: %v", err), IsError: true}, nil
 	}
@@ -128,7 +128,7 @@ func (t *SchemaTool) describeTable(dataset, table string) (*tools.Result, error)
 		return &tools.Result{Content: "table parameter is required for describe_table action", IsError: true}, nil
 	}
 
-	detail, err := t.cache.GetTableDetail(dataset, table)
+	detail, err := t.cache.GetTableDetail(t.projectID, dataset, table)
 	if err != nil {
 		return &tools.Result{Content: fmt.Sprintf("Failed to describe table: %v", err), IsError: true}, nil
 	}

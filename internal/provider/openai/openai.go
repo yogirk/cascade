@@ -190,7 +190,7 @@ func convertMessages(msgs []types.Message) []oai.ChatCompletionMessageParamUnion
 
 		case types.RoleTool:
 			if msg.ToolResult != nil {
-				oaiMsgs = append(oaiMsgs, oai.ToolMessage(msg.ToolResult.CallID, msg.ToolResult.Content))
+				oaiMsgs = append(oaiMsgs, oai.ToolMessage(msg.ToolResult.Content, msg.ToolResult.CallID))
 			}
 		}
 	}

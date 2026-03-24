@@ -128,7 +128,7 @@ func registerBQTools(registry *tools.Registry, comp *BigQueryComponents, costCfg
 	if comp == nil {
 		return
 	}
-	queryTool := bqtools.NewQueryTool(comp.Client, comp.Cache, comp.CostTracker, costCfg, events)
+	queryTool := bqtools.NewQueryTool(comp.Client, comp.Cache, comp.Client.ProjectID(), comp.CostTracker, costCfg, events)
 	schemaTool := bqtools.NewSchemaTool(comp.Cache, comp.Client.ProjectID())
 	bqtools.RegisterAll(registry, queryTool, schemaTool)
 }

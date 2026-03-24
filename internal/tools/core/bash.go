@@ -39,9 +39,18 @@ func (t *BashTool) InputSchema() map[string]any {
 }
 
 // RiskLevel returns the default risk level for bash (DESTRUCTIVE).
-// The agent loop should call ClassifyBashRisk with the actual command
-// before checking permissions.
+// PlanPermission refines this based on the actual command.
 func (t *BashTool) RiskLevel() permission.RiskLevel { return permission.RiskDestructive }
+
+// PlanPermission classifies the actual bash command to determine the real risk level.
+func (t *BashTool) PlanPermission(_ context.Context, input json.RawMessage, _ permission.RiskLevel) (*tools.PermissionPlan, error) {
+	var params bashInput
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, nil // fall back to default risk
+	}
+	risk := ClassifyBashRisk(params.Command)
+	return &tools.PermissionPlan{RiskOverride: &risk}, nil
+}
 
 func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (*tools.Result, error) {
 	var params bashInput

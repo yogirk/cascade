@@ -2,14 +2,11 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	bq "github.com/yogirk/cascade/internal/bigquery"
 	"github.com/yogirk/cascade/internal/permission"
 	"github.com/yogirk/cascade/internal/provider"
 	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/internal/tools/core"
 	"github.com/yogirk/cascade/pkg/types"
 )
 
@@ -68,6 +65,13 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 	a.governor.Reset()
 	toolCallCount := 0
 
+	// Compute context injection once per turn (not per loop iteration).
+	// Schema context is derived from userInput which is constant within a turn.
+	var injectedContext string
+	if a.contextInjector != nil {
+		injectedContext = a.contextInjector(userInput)
+	}
+
 	for {
 		// Auto-compact if context window is filling up (>= 80%)
 		if a.lastPromptTokens > 0 && ShouldCompact(a.lastPromptTokens, a.provider.Model(), 80.0) {
@@ -93,16 +97,14 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 		// Stream LLM response
 		a.emit(&types.StreamStartEvent{})
 		messages := a.session.Messages()
-		if a.contextInjector != nil {
-			if injected := a.contextInjector(userInput); injected != "" {
-				if len(messages) > 0 && messages[0].Role == types.RoleSystem {
-					enriched := make([]types.Message, 0, len(messages)+1)
-					enriched = append(enriched, messages[0], types.SystemMessage(injected))
-					enriched = append(enriched, messages[1:]...)
-					messages = enriched
-				} else {
-					messages = append([]types.Message{types.SystemMessage(injected)}, messages...)
-				}
+		if injectedContext != "" {
+			if len(messages) > 0 && messages[0].Role == types.RoleSystem {
+				enriched := make([]types.Message, 0, len(messages)+1)
+				enriched = append(enriched, messages[0], types.SystemMessage(injectedContext))
+				enriched = append(enriched, messages[1:]...)
+				messages = enriched
+			} else {
+				messages = append([]types.Message{types.SystemMessage(injectedContext)}, messages...)
 			}
 		}
 
@@ -185,28 +187,8 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 
 	a.emit(&types.ToolStartEvent{Name: call.Name, Input: call.Input})
 
-	// Dynamic risk classification for bash
+	// Permission check — tools implement PermissionPlanner for input-aware risk classification
 	var riskTool permission.ToolRiskProvider = tool
-	if call.Name == "bash" {
-		var input struct {
-			Command string `json:"command"`
-		}
-		if err := json.Unmarshal(call.Input, &input); err == nil {
-			riskTool = &dynamicRiskTool{Tool: tool, risk: core.ClassifyBashRisk(input.Command)}
-		}
-	}
-
-	// Dynamic risk classification for bigquery_query
-	if call.Name == "bigquery_query" {
-		var input struct {
-			SQL string `json:"sql"`
-		}
-		if err := json.Unmarshal(call.Input, &input); err == nil && input.SQL != "" {
-			riskTool = &dynamicRiskTool{Tool: tool, risk: bq.ClassifySQLRisk(input.SQL)}
-		}
-	}
-
-	// Permission check
 	baseRisk := riskTool.RiskLevel()
 	if planner, ok := tool.(tools.PermissionPlanner); ok {
 		plan, err := planner.PlanPermission(ctx, call.Input, baseRisk)
