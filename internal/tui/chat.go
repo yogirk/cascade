@@ -31,9 +31,13 @@ type ChatModel struct {
 	messages []ChatMessage
 
 	// Render cache: pre-rendered output for all completed messages.
-	// Rebuilt only on Clear/SetSize. Extended incrementally by AddMessage.
+	// Rebuilt only on Clear/SetSize/ToggleExpand. Extended incrementally by AddMessage.
 	rendered []string // rendered[i] = rendered output of messages[i]
 	cache    string   // joined rendered output (immutable transcript)
+
+	// expandedSet tracks which truncated tool messages are expanded.
+	// Key is the message index. Toggled by Space key in viewport mode.
+	expandedSet map[int]bool
 
 	// followTail controls auto-scroll behavior. True by default.
 	// Set to false when the user manually scrolls up. Reset to true
@@ -62,12 +66,13 @@ func NewChatModel(width, height int) ChatModel {
 	vp.MouseWheelDelta = 3
 
 	return ChatModel{
-		viewport:   vp,
-		messages:   make([]ChatMessage, 0),
-		rendered:   make([]string, 0),
-		followTail: true,
-		width:      width,
-		height:     height,
+		viewport:    vp,
+		messages:    make([]ChatMessage, 0),
+		rendered:    make([]string, 0),
+		expandedSet: make(map[int]bool),
+		followTail:  true,
+		width:       width,
+		height:      height,
 	}
 }
 
@@ -164,9 +169,38 @@ func (c *ChatModel) Clear() {
 	c.messages = c.messages[:0]
 	c.rendered = c.rendered[:0]
 	c.cache = ""
+	c.expandedSet = make(map[int]bool)
 	c.followTail = true
 	c.viewport.SetContent("")
 	c.viewport.GotoBottom()
+}
+
+// ToggleExpand toggles the expanded state of the most recent truncated tool
+// message and rebuilds the cache. Returns true if a message was toggled.
+func (c *ChatModel) ToggleExpand() bool {
+	// Find the most recent truncated tool message
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		msg := c.messages[i]
+		if msg.Role != "tool" || msg.IsError {
+			continue
+		}
+		display := msg.Content
+		if msg.Display != "" {
+			display = msg.Display
+		}
+		if isDiff(display) {
+			continue
+		}
+		lines := strings.Split(strings.TrimRight(display, "\n"), "\n")
+		if len(lines) <= 13 { // headLines + tailLines
+			continue
+		}
+		// Found a truncated tool message — toggle it
+		c.expandedSet[i] = !c.expandedSet[i]
+		c.rebuildCache()
+		return true
+	}
+	return false
 }
 
 // LastAssistantContent returns the raw content of the most recent assistant message.
@@ -235,7 +269,8 @@ func (c *ChatModel) rebuildCache() {
 	c.rendered = make([]string, len(c.messages))
 	var sb strings.Builder
 	for i, msg := range c.messages {
-		r := renderMessageAt(msg, c.width, i) + "\n\n"
+		expanded := c.expandedSet[i]
+		r := renderMessageExpanded(msg, c.width, i, expanded) + "\n\n"
 		c.rendered[i] = r
 		sb.WriteString(r)
 	}
@@ -251,26 +286,36 @@ func (c *ChatModel) rebuildCache() {
 // renderMessageAt formats a single chat message, using its position
 // to decide whether to show a turn separator.
 func renderMessageAt(msg ChatMessage, width int, index int) string {
-	return renderMessageOpts(msg, width, index > 0)
+	return renderMessageFull(msg, width, index > 0, false)
+}
+
+// renderMessageExpanded formats a message with optional expansion for tool output.
+func renderMessageExpanded(msg ChatMessage, width int, index int, expanded bool) string {
+	return renderMessageFull(msg, width, index > 0, expanded)
 }
 
 // renderMessage formats a single chat message (for streaming, index unknown).
 func renderMessage(msg ChatMessage, width int) string {
-	return renderMessageOpts(msg, width, true)
+	return renderMessageFull(msg, width, true, false)
 }
 
-func renderMessageOpts(msg ChatMessage, width int, showSep bool) string {
+func renderMessageFull(msg ChatMessage, width int, showSep bool, expanded bool) string {
 	switch msg.Role {
 	case "user":
-		prefix := ""
-		if showSep {
-			prefix = turnSeparator(width) + "\n"
+		// Match the input box dimensions: full width, same padding
+		barWidth := width - 4 // account for border + padding
+		if barWidth < 20 {
+			barWidth = 20
 		}
-		return prefix + UserPromptStyle.Render("> ") + msg.Content
+		bar := UserMessageBarStyle.Width(barWidth).Render(msg.Content)
+		if showSep {
+			return turnSeparator(width) + "\n\n" + bar
+		}
+		return bar
 	case "assistant":
 		return AssistantBulletStyle.Render("≋") + " " + renderMarkdown(msg.Content, width-2)
 	case "tool":
-		return renderToolMessage(msg)
+		return renderToolMessage(msg, expanded)
 	case "error":
 		return ErrorPrefixStyle.Render("!") + " " + msg.Content
 	case "welcome":
@@ -298,8 +343,8 @@ func turnSeparator(width int) string {
 	return SeparatorStyle.Render(strings.Repeat("─", w))
 }
 
-// renderToolMessage renders a tool call with ∞ bullet, name, args, and indented output.
-func renderToolMessage(msg ChatMessage) string {
+// renderToolMessage renders a tool call with ~ bullet, name, args, and indented output.
+func renderToolMessage(msg ChatMessage, expanded bool) string {
 	var sb strings.Builder
 
 	// Header: ∞ tool_name args (bullet color by tool category)
@@ -345,16 +390,21 @@ func renderToolMessage(msg ChatMessage) string {
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
-	// Normal output: show first + last lines for long output
+	// Normal output: show first + last lines for long output, or full if expanded
 	lines := strings.Split(strings.TrimRight(display, "\n"), "\n")
 	headLines := 10
 	tailLines := 3
 	maxLines := headLines + tailLines
 
-	if len(lines) <= maxLines {
+	if len(lines) <= maxLines || expanded {
 		for _, line := range lines {
 			sb.WriteString("    ")
 			sb.WriteString(StatusDimStyle.Render(line))
+			sb.WriteString("\n")
+		}
+		if expanded && len(lines) > maxLines {
+			sb.WriteString("    ")
+			sb.WriteString(AssistantBulletStyle.Faint(true).Render("[Space to collapse]"))
 			sb.WriteString("\n")
 		}
 	} else {
@@ -372,6 +422,9 @@ func renderToolMessage(msg ChatMessage) string {
 			sb.WriteString(StatusDimStyle.Render(line))
 			sb.WriteString("\n")
 		}
+		sb.WriteString("    ")
+		sb.WriteString(AssistantBulletStyle.Faint(true).Render("[Space to expand]"))
+		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }

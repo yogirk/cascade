@@ -246,8 +246,25 @@ func formatTokens(n int32) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
+// costColor returns the appropriate color for a BQ cost amount.
+func costColor(cost float64) lipgloss.Style {
+	switch {
+	case cost >= 5.0:
+		return lipgloss.NewStyle().Foreground(dangerColor)
+	case cost >= 1.0:
+		return lipgloss.NewStyle().Foreground(warningColor)
+	default:
+		return lipgloss.NewStyle().Foreground(successColor)
+	}
+}
+
 // View renders the status bar.
-// Layout: model  MODE  [status]  [tokens]  cwd  branch
+// Layout priority (right-to-left collapse):
+//   ≥100: model  MODE  cost  middle  context  cwd  branch
+//   80-99: model  MODE  cost  middle  context  cwd
+//   60-79: model  MODE  cost  middle
+//   40-59: MODE  cost
+//   <40:   MODE
 func (s StatusModel) View() string {
 	w := s.width
 	if w <= 0 {
@@ -255,30 +272,57 @@ func (s StatusModel) View() string {
 	}
 
 	// Build segments
-	model := StatusModelStyle.Render(friendlyModelName(s.modelName))
+	modelStr := friendlyModelName(s.modelName)
+	if w < 70 {
+		// Truncate to first word at narrow widths
+		if idx := strings.Index(modelStr, " "); idx > 0 {
+			modelStr = modelStr[:idx]
+		}
+	}
+	model := StatusModelStyle.Render(modelStr)
 	mode := ModeBadge(s.mode)
 
-	// Middle: approval, tool, or cost status
+	// Cost segment: BQ $X.XX · ↑Nk ↓Nk (always visible at ≥40 cols)
+	var costSeg string
+	if s.cost > 0 {
+		bqCost := costColor(s.cost).Render(fmt.Sprintf("BQ $%.2f", s.cost))
+		if s.dailyBudget > 0 && s.cost/s.dailyBudget >= 0.80 {
+			pct := int(s.cost / s.dailyBudget * 100)
+			bqCost = lipgloss.NewStyle().Foreground(warningColor).Render(
+				fmt.Sprintf("BQ $%.2f (%d%%)", s.cost, pct))
+		}
+		if w < 70 {
+			// Abbreviated: drop "BQ" label
+			bqCost = costColor(s.cost).Render(fmt.Sprintf("$%.2f", s.cost))
+		}
+		costSeg = bqCost
+	}
+	// Append LLM token counts if available
+	if s.totalTokens > 0 {
+		tokens := StatusDimStyle.Render(
+			fmt.Sprintf("↑%s ↓%s", formatTokens(s.promptTokens), formatTokens(s.completionTokens)))
+		if costSeg != "" {
+			costSeg += StatusDimStyle.Render(" · ") + tokens
+		} else {
+			costSeg = tokens
+		}
+	}
+
+	// Middle: approval > tool > transient message (priority order)
 	var middle string
 	if s.pendingApproval {
 		middle = lipgloss.NewStyle().Foreground(warningColor).Render("● awaiting approval")
 	} else if s.toolName != "" {
-		middle = ToolBulletStyle.Render("~") + " " + s.toolName
+		tn := s.toolName
+		if len(tn) > 20 {
+			tn = tn[:17] + "..."
+		}
+		middle = ToolBulletStyle.Render("~") + " " + tn
 	} else if s.message != "" && time.Since(s.messageSetAt) < 3*time.Second {
 		middle = s.message
-	} else if s.cost > 0 {
-		costStr := fmt.Sprintf("$%.2f", s.cost)
-		if s.dailyBudget > 0 && s.cost/s.dailyBudget >= 0.80 {
-			// Budget warning: amber color with percentage
-			pct := int(s.cost / s.dailyBudget * 100)
-			middle = lipgloss.NewStyle().Foreground(warningColor).Render(
-				fmt.Sprintf("%s (%d%% budget)", costStr, pct))
-		} else {
-			middle = StatusDimStyle.Render(costStr)
-		}
 	}
 
-	// Context usage bar (no token counts — those are shown per-turn in spinner)
+	// Context usage bar
 	var context string
 	if s.totalTokens > 0 {
 		ctxSize := contextWindowSize(s.modelName)
@@ -291,28 +335,39 @@ func (s StatusModel) View() string {
 		context = bar + " " + StatusDimStyle.Render(pctStr)
 	}
 
-	// Right side: cwd + git branch (responsive)
-	var right string
-	if w >= 80 && s.cwd != "" {
-		right = StatusDimStyle.Render(s.cwd)
+	// Right side: cwd + git branch
+	var cwdStr, branchStr string
+	if s.cwd != "" {
+		cwdStr = StatusDimStyle.Render(s.cwd)
 	}
-	if w >= 60 && s.gitBranch != "" {
-		if right != "" {
-			right += "  "
+	if s.gitBranch != "" {
+		b := s.gitBranch
+		if len(b) > 15 {
+			b = b[:12] + "..."
 		}
-		right += StatusDimStyle.Render(" " + s.gitBranch)
+		branchStr = StatusDimStyle.Render(" " + b)
 	}
 
-	// Assemble with spacing, 2-space left pad to align with input box
-	parts := []string{model, mode}
-	if middle != "" {
+	// Assemble based on width tier
+	parts := []string{}
+	if w >= 60 {
+		parts = append(parts, model)
+	}
+	parts = append(parts, mode)
+	if w >= 40 && costSeg != "" {
+		parts = append(parts, costSeg)
+	}
+	if w >= 60 && middle != "" {
 		parts = append(parts, middle)
 	}
-	if context != "" {
+	if w >= 80 && context != "" {
 		parts = append(parts, context)
 	}
-	if right != "" {
-		parts = append(parts, right)
+	if w >= 80 && cwdStr != "" {
+		parts = append(parts, cwdStr)
+	}
+	if w >= 100 && branchStr != "" {
+		parts = append(parts, branchStr)
 	}
 
 	content := "  " + strings.Join(parts, "   ")

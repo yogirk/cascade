@@ -36,18 +36,9 @@ var toolMessages = map[string]string{
 	"bigquery_schema": "Looking up schema...",
 }
 
-// Sweep palette — dim to bright for the character spotlight effect.
-var sweepDim color.Color = lipgloss.Color("#4B5563")
-var sweepMid color.Color = lipgloss.Color("#9CA3AF")
-var sweepBright color.Color = lipgloss.Color("#F3F4F6")
-
-// Cascade tilde colors — ocean blue palette matching the logo.
-var (
-	cascadeDim    color.Color = lipgloss.Color("#1E3A5F")
-	cascadeTrail  color.Color = lipgloss.Color("#0369A1")
-	cascadeBright color.Color = lipgloss.Color("#38BDF8")
-	cascadePeak   color.Color = lipgloss.Color("#7DD3FC")
-)
+// Spinner colors (sweepDim, sweepMid, sweepBright, cascadeDim, cascadeTrail,
+// cascadeBright, cascadePeak) are defined in styles.go and initialized
+// adaptively for light/dark terminals via initPalette().
 
 // tickMsg drives the cascade animation at ~12fps.
 type cascadeTickMsg time.Time

@@ -14,6 +14,7 @@ type WelcomeModel struct {
 	mode     permission.Mode
 	project  string   // GCP project ID
 	datasets []string // configured BQ datasets
+	authOK   bool     // GCP resource auth succeeded
 	width    int
 	height   int
 }
@@ -24,7 +25,13 @@ func NewWelcomeModel(mode permission.Mode, project string, datasets []string) We
 		mode:     mode,
 		project:  project,
 		datasets: datasets,
+		authOK:   true, // assume OK unless explicitly set
 	}
+}
+
+// SetAuthOK sets whether GCP resource auth succeeded.
+func (w *WelcomeModel) SetAuthOK(ok bool) {
+	w.authOK = ok
 }
 
 // SetSize updates the welcome banner dimensions.
@@ -33,26 +40,9 @@ func (w *WelcomeModel) SetSize(width, height int) {
 	w.height = height
 }
 
-// -- Styles --
-
-var (
-	gBlue   = lipgloss.NewStyle().Foreground(googleBlue)
-	gRed    = lipgloss.NewStyle().Foreground(googleRed)
-	gYellow = lipgloss.NewStyle().Foreground(googleYellow)
-	gGreen  = lipgloss.NewStyle().Foreground(googleGreen)
-	gBright = lipgloss.NewStyle().Foreground(brightColor)
-	gDim    = lipgloss.NewStyle().Foreground(dimTextColor)
-)
-
-// -- Cascade Logo --
-
-// Cascade ocean palette — four stages, deepest first.
-var (
-	cascadeBg1 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0C4A6E"), lipgloss.Color("#0369A1")))
-	cascadeBg2 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0369A1"), lipgloss.Color("#0EA5E9")))
-	cascadeBg3 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0EA5E9"), lipgloss.Color("#38BDF8")))
-	cascadeBg4 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#38BDF8"), lipgloss.Color("#7DD3FC")))
-)
+// Welcome banner styles (gBlue, gRed, gYellow, gGreen, gBright, gDim,
+// cascadeBg1-4) are defined in styles.go and initialized adaptively
+// for light/dark terminals via initPalette().
 
 // renderCascadeLogo renders the Cascade logo — four bars stepping
 // right, each a pipeline stage.
@@ -105,7 +95,14 @@ func (w WelcomeModel) View() string {
 	leftPanel := leftStyle.Render(leftContent)
 
 	// === Right panel: connection status ===
+	warnStyle := lipgloss.NewStyle().Foreground(warningColor)
 	var rightLines []string
+
+	if !w.authOK {
+		rightLines = append(rightLines,
+			warnStyle.Render("⚠ Not authenticated"))
+		rightLines = append(rightLines, "")
+	}
 
 	if w.project != "" {
 		rightLines = append(rightLines,
@@ -122,6 +119,10 @@ func (w WelcomeModel) View() string {
 		labelStyle.Render("Mode      ")+ModeBadge(w.mode))
 
 	rightLines = append(rightLines, "")
+	if w.project == "" {
+		rightLines = append(rightLines,
+			dim.Render("Run cascade --project <id> to connect"))
+	}
 	rightLines = append(rightLines,
 		dim.Render("Type a message to get started"))
 	rightLines = append(rightLines,

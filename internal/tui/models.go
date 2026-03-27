@@ -3,8 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"charm.land/lipgloss/v2"
 )
 
 // modelEntry represents an available model for a provider.
@@ -45,16 +43,9 @@ var availableModels = map[string][]modelEntry{
 	},
 }
 
-// Styles for model picker rendering.
-var (
-	mpAccentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8")).Bold(true)
-	mpNameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6"))
-	mpIDStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	mpNoteStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	mpDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	mpCurStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
-	mpProvStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
-)
+// Model picker styles (mpAccentStyle, mpNameStyle, mpIDStyle, mpNoteStyle,
+// mpDimStyle, mpCurStyle, mpProvStyle) are defined in styles.go and
+// initialized adaptively for light/dark terminals via initPalette().
 
 // ModelPickerModel is an interactive model selector.
 type ModelPickerModel struct {

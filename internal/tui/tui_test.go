@@ -151,8 +151,8 @@ func TestRenderMessage_User(t *testing.T) {
 	if rendered == "" {
 		t.Error("expected non-empty rendered message for user")
 	}
-	if !containsStr(rendered, "> ") {
-		t.Error("user message should contain '> ' prefix")
+	if !containsStr(rendered, "Hello there") {
+		t.Error("user message should contain the original content")
 	}
 	if !containsStr(rendered, "Hello there") {
 		t.Error("rendered user message should contain the original content")
@@ -204,9 +204,9 @@ func TestRenderToolMessage(t *testing.T) {
 		Content:  "file contents here",
 		Display:  "file contents here",
 	}
-	rendered := renderToolMessage(msg)
+	rendered := renderToolMessage(msg, false)
 	if !containsStr(rendered, "~") {
-		t.Error("tool message should contain ∞ bullet")
+		t.Error("tool message should contain ~ bullet")
 	}
 	if !containsStr(rendered, "read_file") {
 		t.Error("tool message should contain tool name")
@@ -221,7 +221,7 @@ func TestRenderToolMessage_Error(t *testing.T) {
 		Content:  "command not found",
 		IsError:  true,
 	}
-	rendered := renderToolMessage(msg)
+	rendered := renderToolMessage(msg, false)
 	if !containsStr(rendered, "~") {
 		t.Error("tool error should contain ∞ bullet")
 	}

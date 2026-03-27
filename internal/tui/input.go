@@ -22,12 +22,13 @@ const maxHistory = 50
 //
 // Visual style: left accent border, elevated background, no full box border.
 type InputModel struct {
-	input   textarea.Model
-	focused bool
-	width   int
-	history []string
-	histIdx int
-	draft   string
+	input          textarea.Model
+	focused        bool
+	width          int
+	terminalHeight int
+	history        []string
+	histIdx        int
+	draft          string
 }
 
 // NewInputModel creates a new input model.
@@ -187,6 +188,11 @@ func (i *InputModel) Blur() {
 	i.input.Blur()
 }
 
+// SetTerminalHeight updates the terminal height for input max height calculation.
+func (i *InputModel) SetTerminalHeight(h int) {
+	i.terminalHeight = h
+}
+
 // SetWidth updates the input width.
 func (i *InputModel) SetWidth(width int) {
 	i.width = width
@@ -254,6 +260,21 @@ func (i *InputModel) syncInputSize() {
 	}
 	if totalLines < 1 {
 		totalLines = 1
+	}
+
+	// Cap at min(40% of terminal height, 10 lines) to prevent paste-bombing
+	maxLines := 10
+	if i.terminalHeight > 0 {
+		fortyPct := i.terminalHeight * 2 / 5
+		if fortyPct < maxLines {
+			maxLines = fortyPct
+		}
+	}
+	if maxLines < 3 {
+		maxLines = 3
+	}
+	if totalLines > maxLines {
+		totalLines = maxLines
 	}
 
 	i.input.SetHeight(totalLines)

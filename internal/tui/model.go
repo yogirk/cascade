@@ -95,6 +95,9 @@ type Model struct {
 
 // NewModel creates a new TUI model wired to the given application.
 func NewModel(application *app.App) Model {
+	// Apply theme override from config before any rendering.
+	SetTheme(application.Config.Display.Theme)
+
 	gitBranch := DetectGitBranch()
 	cwd, _ := os.Getwd()
 	shortCwd := ShortenPath(cwd)
@@ -261,9 +264,9 @@ func (m Model) View() tea.View {
 		if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 			switch wheel.Button {
 			case tea.MouseWheelUp:
-				m.chat.ScrollUp(3)
+				m.chat.ScrollUp(1)
 			case tea.MouseWheelDown:
-				m.chat.ScrollDown(3)
+				m.chat.ScrollDown(1)
 			}
 		}
 		return nil
@@ -406,6 +409,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.keys.PageDown.Matches(key):
 		m.chat.HalfPageDown()
+		return m, nil
+
+	case key == " " && !m.input.Focused():
+		// Space in viewport mode: toggle expand on most recent truncated tool output
+		m.chat.ToggleExpand()
 		return m, nil
 
 	case m.keys.Submit.Matches(key):
@@ -663,6 +671,7 @@ func (m *Model) layout() {
 
 	m.chat.SetSize(contentWidth, chatHeight)
 	m.welcome.SetSize(m.width-1, chatHeight) // -1 for the 1-space left indent
+	m.input.SetTerminalHeight(m.height)
 	m.input.SetWidth(m.width - 4)            // 2-space gutter on both sides
 	m.status.SetWidth(m.width) // Status bar stays full-width
 }
@@ -833,6 +842,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 
 	case cmd == "/clear":
 		m.chat.Clear()
+		m.showWelcome = true // restore welcome banner on empty conversation
 
 	case cmd == "/copy":
 		if content := m.chat.LastAssistantContent(); content != "" {
