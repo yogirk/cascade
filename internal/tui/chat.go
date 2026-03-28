@@ -12,12 +12,13 @@ import (
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
-	Role     string          // "user", "assistant", "tool", "error", "system"
-	Content  string
-	ToolName string          // for role="tool"
-	ToolArgs json.RawMessage // for role="tool"
-	Display  string          // for role="tool": formatted display (diffs)
-	IsError  bool            // for role="tool"
+	Role          string          // "user", "assistant", "tool", "error", "system"
+	Content       string
+	ToolName      string          // for role="tool"
+	ToolArgs      json.RawMessage // for role="tool"
+	ToolRiskLevel string          // for role="tool": risk level for bullet glyph selection
+	Display       string          // for role="tool": formatted display (diffs)
+	IsError       bool            // for role="tool"
 }
 
 // ChatModel manages the scrollable chat message history.
@@ -348,7 +349,7 @@ func renderToolMessage(msg ChatMessage, expanded bool) string {
 	var sb strings.Builder
 
 	// Header: ∞ tool_name args (bullet color by tool category)
-	sb.WriteString(ToolBullet(msg.ToolName))
+	sb.WriteString(ToolBulletByRisk(msg.ToolName, msg.ToolRiskLevel))
 	sb.WriteString(" ")
 
 	name := msg.ToolName

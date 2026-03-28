@@ -24,8 +24,9 @@ type StreamCompleteEvent struct {
 
 // ToolStartEvent is emitted when a tool begins execution.
 type ToolStartEvent struct {
-	Name  string
-	Input json.RawMessage
+	Name      string
+	Input     json.RawMessage
+	RiskLevel string // permission.RiskLevel.String() value for TUI bullet glyph selection
 }
 
 // ToolEndEvent is emitted when a tool finishes execution.

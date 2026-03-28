@@ -6,6 +6,7 @@ import "github.com/yogirk/cascade/pkg/types"
 type Session struct {
 	messages     []types.Message
 	systemPrompt string
+	onSave       func([]types.Message) // optional persistence callback
 }
 
 // NewSession creates a new session. If systemPrompt is non-empty,
@@ -44,6 +45,16 @@ func (s *Session) Replace(messages []types.Message) {
 
 // SystemPrompt returns the session's system prompt.
 func (s *Session) SystemPrompt() string { return s.systemPrompt }
+
+// SetOnSave registers a callback invoked when NotifySave is called.
+func (s *Session) SetOnSave(fn func([]types.Message)) { s.onSave = fn }
+
+// NotifySave triggers the persistence callback with the current messages.
+func (s *Session) NotifySave() {
+	if s.onSave != nil {
+		s.onSave(s.messages)
+	}
+}
 
 // SetSystemPrompt updates the system prompt (used for context injection).
 func (s *Session) SetSystemPrompt(prompt string) {

@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/yogirk/cascade/internal/agent"
 	"github.com/yogirk/cascade/internal/auth"
 	"github.com/yogirk/cascade/internal/config"
 	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/internal/persist"
 	"github.com/yogirk/cascade/internal/provider"
 	antprov "github.com/yogirk/cascade/internal/provider/anthropic"
 	"github.com/yogirk/cascade/internal/provider/gemini"
@@ -19,6 +21,12 @@ import (
 	"github.com/yogirk/cascade/internal/tools/core"
 	"github.com/yogirk/cascade/pkg/types"
 )
+
+// Options controls optional behaviors during app initialization.
+type Options struct {
+	ResumeSession bool   // resume the most recent session
+	SessionID     string // resume a specific session by ID
+}
 
 // App holds all assembled Cascade components.
 type App struct {
@@ -33,10 +41,16 @@ type App struct {
 	Resource    *auth.ResourceAuth   // GCP platform credentials
 	Morning     *plat.PlatformCollector // nil if no sources available
 	CascadeMD   *config.CascadeMD      // nil if no CASCADE.md found
+	Sessions    *persist.SQLiteStore   // nil if session persistence unavailable
+	SessionID   string                 // current session ID
 }
 
 // New creates a fully-wired App from the given configuration.
-func New(ctx context.Context, cfg *config.Config) (*App, error) {
+func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error) {
+	var opt Options
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	// ── 1. Resource Plane: GCP platform auth (always attempt) ──
 	resource := auth.ResolveResourceAuth(ctx,
 		cfg.GCP.Project,
@@ -101,6 +115,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Registry:     registry,
 		Permissions:  perms,
 		MaxToolCalls: cfg.Agent.MaxToolCalls,
+		ToolTimeout:  cfg.Agent.ToolTimeout,
 		SystemPrompt: BuildSystemPrompt(bqComp, cfg),
 		Events:       agent.EventChan(events),
 		Approvals:    approvals,
@@ -123,7 +138,57 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// ── 9. Morning collector (platform intelligence) ──
 	morning := buildMorningCollector(bqComp, platform, cfg, cascadeMD)
 
-	// ── 10. Startup report ──
+	// ── 10. Session persistence ──
+	homeDir, _ := os.UserHomeDir()
+	cascadeDir := filepath.Join(homeDir, ".cascade")
+	var sessionStore *persist.SQLiteStore
+	var sessionID string
+	if store, err := persist.OpenSQLite(cascadeDir); err == nil {
+		sessionStore = store
+		sessionID = persist.GenerateSessionID()
+
+		// Resume existing session if requested
+		if opt.SessionID != "" {
+			if meta, msgs, err := store.LoadSession(opt.SessionID); err == nil {
+				ag.Session().Replace(stripSystemMessages(msgs))
+				sessionID = meta.ID
+			} else {
+				fmt.Fprintf(os.Stderr, "  ⚠ Session %q not found: %v\n", opt.SessionID, err)
+			}
+		} else if opt.ResumeSession {
+			if latestID, err := store.LatestSessionID(); err == nil && latestID != "" {
+				if _, msgs, err := store.LoadSession(latestID); err == nil {
+					ag.Session().Replace(stripSystemMessages(msgs))
+					sessionID = latestID
+				}
+			}
+		}
+
+		// Wire auto-save callback
+		sid := sessionID
+		ag.Session().SetOnSave(func(messages []types.Message) {
+			summary := ""
+			for _, m := range messages {
+				if m.Role == types.RoleUser && m.Content != "" {
+					summary = m.Content
+					if len(summary) > 100 {
+						summary = string([]rune(summary)[:100])
+					}
+					break
+				}
+			}
+			if err := store.SaveSession(persist.SessionMeta{
+				ID:      sid,
+				Model:   prov.Model(),
+				Project: cfg.GCP.Project,
+				Summary: summary,
+			}, messages); err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ Session save failed: %v\n", err)
+			}
+		})
+	}
+
+	// ── 11. Startup report ──
 	reportAuthStatus(os.Stderr, resource, modelAuth, bqComp, cfg)
 
 	return &App{
@@ -138,7 +203,31 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Resource:    resource,
 		Morning:     morning,
 		CascadeMD:   cascadeMD,
+		Sessions:    sessionStore,
+		SessionID:   sessionID,
 	}, nil
+}
+
+// Close releases resources held by the App.
+func (a *App) Close() {
+	if a.BQ != nil {
+		a.BQ.Close()
+	}
+	if a.Sessions != nil {
+		a.Sessions.Close()
+	}
+}
+
+// stripSystemMessages removes system-role messages from a loaded session
+// to avoid duplicating the system prompt when Replace() prepends a fresh one.
+func stripSystemMessages(msgs []types.Message) []types.Message {
+	filtered := make([]types.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role != types.RoleSystem {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 // buildProvider creates the LLM provider from resolved model auth.

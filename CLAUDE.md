@@ -31,6 +31,7 @@ internal/
   permission/                 Permission engine: ASK / READ_ONLY / FULL_ACCESS modes
   bigquery/                   BQ client wrapper, SQL classification, cost tracking
   schema/                     SQLite + FTS5 schema cache from INFORMATION_SCHEMA
+  persist/                    Session persistence (SQLite, auto-save, resume)
   config/                     TOML config loading with env/flag overrides
   auth/                       GCP resource auth + LLM provider auth
   tui/                        Bubble Tea TUI (model, chat, input, status, spinner, confirm)

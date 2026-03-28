@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/yogirk/cascade/internal/permission"
 	"github.com/yogirk/cascade/internal/provider"
@@ -22,6 +23,7 @@ type Agent struct {
 	session          *Session
 	events           EventHandler
 	maxRetries       int // per tool call error retry, default 2
+	toolTimeout      time.Duration
 	lastPromptTokens int32
 }
 
@@ -31,6 +33,7 @@ type AgentConfig struct {
 	Registry     *tools.Registry
 	Permissions  *permission.Engine
 	MaxToolCalls int
+	ToolTimeout  int // seconds; 0 means default (120s)
 	SystemPrompt string
 	Events       EventHandler
 	Approvals    chan<- types.ApprovalRequest
@@ -43,6 +46,10 @@ func New(cfg AgentConfig) *Agent {
 	if maxCalls <= 0 {
 		maxCalls = 200
 	}
+	timeout := time.Duration(cfg.ToolTimeout) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
 	return &Agent{
 		provider:    cfg.Provider,
 		registry:    cfg.Registry,
@@ -53,6 +60,7 @@ func New(cfg AgentConfig) *Agent {
 		session:     NewSession(cfg.SystemPrompt),
 		events:      cfg.Events,
 		maxRetries:  2,
+		toolTimeout: timeout,
 	}
 }
 
@@ -79,6 +87,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 			if err == nil {
 				beforeTokens := a.lastPromptTokens
 				a.session.Replace(newMessages)
+				a.session.NotifySave()
 				a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
 				// AfterTokens will be updated on next LLM response
 			}
@@ -149,6 +158,7 @@ func (a *Agent) RunTurn(ctx context.Context, userInput string) error {
 		// No tool calls = turn complete
 		if len(response.ToolCalls) == 0 {
 			a.emit(&types.DoneEvent{})
+			a.session.NotifySave()
 			return nil
 		}
 
@@ -185,7 +195,7 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		}
 	}
 
-	a.emit(&types.ToolStartEvent{Name: call.Name, Input: call.Input})
+	a.emit(&types.ToolStartEvent{Name: call.Name, Input: call.Input, RiskLevel: tool.RiskLevel().String()})
 
 	// Permission check — tools implement PermissionPlanner for input-aware risk classification
 	var riskTool permission.ToolRiskProvider = tool
@@ -276,8 +286,10 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		}
 	}
 
-	// Execute the tool
-	result, err := tool.Execute(ctx, call.Input)
+	// Execute the tool with timeout
+	execCtx, cancel := context.WithTimeout(ctx, a.toolTimeout)
+	defer cancel()
+	result, err := tool.Execute(execCtx, call.Input)
 	if err != nil {
 		errResult := &tools.Result{
 			Content: fmt.Sprintf("Tool error: %v", err),
@@ -306,6 +318,7 @@ func (a *Agent) Compact(ctx context.Context) error {
 	}
 	beforeTokens := a.lastPromptTokens
 	a.session.Replace(newMessages)
+	a.session.NotifySave()
 	a.emit(&types.CompactEvent{BeforeTokens: beforeTokens, AfterTokens: 0})
 	return nil
 }

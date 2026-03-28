@@ -911,3 +911,74 @@ func TestRunTurn_ToolExecutionError(t *testing.T) {
 		t.Error("expected error result in session for tool failure")
 	}
 }
+
+// slowMockTool sleeps until context is cancelled or duration elapses.
+type slowMockTool struct {
+	name     string
+	duration time.Duration
+}
+
+func (t *slowMockTool) Name() string                { return t.name }
+func (t *slowMockTool) Description() string         { return "Slow mock tool" }
+func (t *slowMockTool) InputSchema() map[string]any { return map[string]any{"type": "object"} }
+func (t *slowMockTool) RiskLevel() permission.RiskLevel { return permission.RiskReadOnly }
+func (t *slowMockTool) Execute(ctx context.Context, _ json.RawMessage) (*tools.Result, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(t.duration):
+		return &tools.Result{Content: "done"}, nil
+	}
+}
+
+func TestRunTurn_ToolTimeout(t *testing.T) {
+	// LLM calls a slow tool, then returns text
+	prov := &multiMockProvider{
+		responses: []mockResponse{
+			{
+				tokens: []string{"calling"},
+				response: &types.Response{
+					ToolCalls: []types.ToolCall{
+						{ID: "1", Name: "slow_tool", Input: json.RawMessage(`{}`)},
+					},
+				},
+			},
+			{
+				tokens:   []string{"timed out"},
+				response: &types.Response{Text: "timed out"},
+			},
+		},
+	}
+
+	registry := tools.NewRegistry()
+	registry.Register(&slowMockTool{name: "slow_tool", duration: 5 * time.Second})
+
+	events, collect := collectEvents(64)
+	ag := New(AgentConfig{
+		Provider:     prov,
+		Registry:     registry,
+		Permissions:  permission.NewEngine(permission.ModeFullAccess),
+		MaxToolCalls: 10,
+		ToolTimeout:  1, // 1 second timeout
+		SystemPrompt: "test",
+		Events:       events,
+	})
+
+	err := ag.RunTurn(context.Background(), "run slow tool")
+	if err != nil {
+		t.Fatalf("RunTurn failed: %v", err)
+	}
+
+	evts := collect()
+	// Should see a ToolEndEvent with error (timeout)
+	foundTimeoutError := false
+	for _, evt := range evts {
+		if te, ok := evt.(*types.ToolEndEvent); ok && te.IsError {
+			foundTimeoutError = true
+			break
+		}
+	}
+	if !foundTimeoutError {
+		t.Error("expected ToolEndEvent with error due to timeout")
+	}
+}

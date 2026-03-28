@@ -205,8 +205,8 @@ func TestRenderToolMessage(t *testing.T) {
 		Display:  "file contents here",
 	}
 	rendered := renderToolMessage(msg, false)
-	if !containsStr(rendered, "~") {
-		t.Error("tool message should contain ~ bullet")
+	if !containsStr(rendered, "○") {
+		t.Error("tool message should contain ○ bullet for read-only tool")
 	}
 	if !containsStr(rendered, "read_file") {
 		t.Error("tool message should contain tool name")
@@ -222,8 +222,8 @@ func TestRenderToolMessage_Error(t *testing.T) {
 		IsError:  true,
 	}
 	rendered := renderToolMessage(msg, false)
-	if !containsStr(rendered, "~") {
-		t.Error("tool error should contain ∞ bullet")
+	if !containsStr(rendered, "●") {
+		t.Error("tool error should contain ● bullet for exec tool")
 	}
 	if !containsStr(rendered, "!") {
 		t.Error("tool error should contain '!' prefix in output")

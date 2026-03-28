@@ -136,6 +136,31 @@ func NewModel(application *app.App) Model {
 		)
 	}
 
+	// Hydrate chat with resumed session messages (if any)
+	if msgs := application.Agent.Session().Messages(); len(msgs) > 0 {
+		m.showWelcome = false
+		for _, msg := range msgs {
+			switch msg.Role {
+			case types.RoleUser:
+				m.chat.AddMessage(ChatMessage{Role: "user", Content: msg.Content})
+			case types.RoleAssistant:
+				if msg.Content != "" {
+					m.chat.AddMessage(ChatMessage{Role: "assistant", Content: msg.Content})
+				}
+			case types.RoleSystem:
+				// Skip system messages (prompt injection, not user-visible)
+			case types.RoleTool:
+				if msg.ToolResult != nil {
+					m.chat.AddMessage(ChatMessage{
+						Role:    "tool",
+						Content: msg.ToolResult.Content,
+						IsError: msg.ToolResult.IsError,
+					})
+				}
+			}
+		}
+	}
+
 	return m
 }
 
@@ -534,6 +559,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		if m.lastToolStart != nil {
 			msg.ToolName = m.lastToolStart.Name
 			msg.ToolArgs = m.lastToolStart.Input
+			msg.ToolRiskLevel = m.lastToolStart.RiskLevel
 		}
 		m.chat.AddMessage(msg)
 		m.lastToolStart = nil
@@ -824,6 +850,8 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /insights       BigQuery cost health dashboard",
 			"  /logs           Recent warnings and errors",
 			"  /sync           Refresh schema cache",
+			"  /sessions       List saved sessions",
+			"  /save           Force-save current session",
 			"",
 			"Shortcuts:",
 			"  Enter           Send message",
@@ -1064,6 +1092,43 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			return ChatMessage{Role: "system",
 				Content: fmt.Sprintf("Schema cache refreshed — %d tables across %s", totalTables, strings.Join(datasets, ", "))}
 		}
+
+	case cmd == "/sessions":
+		if m.app.Sessions == nil {
+			m.chat.AddMessage(ChatMessage{Role: "error", Content: "Session persistence not available."})
+			return nil
+		}
+		sessions, err := m.app.Sessions.ListSessions()
+		if err != nil {
+			m.chat.AddMessage(ChatMessage{Role: "error", Content: fmt.Sprintf("List sessions: %v", err)})
+			return nil
+		}
+		if len(sessions) == 0 {
+			m.chat.AddMessage(ChatMessage{Role: "system", Content: "No saved sessions."})
+			return nil
+		}
+		var sb strings.Builder
+		sb.WriteString("Saved sessions:\n")
+		for _, s := range sessions {
+			summary := s.Summary
+			if len([]rune(summary)) > 60 {
+				summary = string([]rune(summary)[:60]) + "..."
+			}
+			if summary == "" {
+				summary = "(empty)"
+			}
+			sb.WriteString(fmt.Sprintf("  %s  %-20s  %s  %s\n", s.ID, s.Model, s.UpdatedAt.Format("2006-01-02 15:04"), summary))
+		}
+		sb.WriteString("\nResume with: cascade --session <id>")
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: sb.String()})
+
+	case cmd == "/save":
+		if m.app.Sessions == nil {
+			m.chat.AddMessage(ChatMessage{Role: "error", Content: "Session persistence not available."})
+			return nil
+		}
+		m.app.Agent.Session().NotifySave()
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: fmt.Sprintf("Session saved: %s", m.app.SessionID)})
 
 	default:
 		m.chat.AddMessage(ChatMessage{

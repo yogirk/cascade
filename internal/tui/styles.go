@@ -412,27 +412,55 @@ func RiskBadge(riskLevel string) string {
 
 // ToolBullet returns a colored ∞ bullet based on the tool's category.
 //
-//	Green  — read-only (grep, glob, read)
-//	Amber  — write/modify (write_file, edit_file)
-//	Red    — execute/risky (bash)
-//	Cyan   — query/cost-bearing (bigquery_query)
-//	Indigo — platform data (cloud_logging, gcs)
+//	Green  ○ — read-only (grep, glob, read)
+//	Amber  ◇ — write/modify (write_file, edit_file)
+//	Red    ● — execute/risky (bash)
+//	Cyan   △ — query/cost-bearing (bigquery_query)
+//	Indigo □ — platform data (cloud_logging, gcs)
+//
+// Shape encodes the action category (accessible without color).
+// Color encodes the risk level (redundant with shape for sighted users).
 func ToolBullet(toolName string) string {
+	return ToolBulletByRisk(toolName, "")
+}
+
+// ToolBulletByRisk returns a colored, shape-differentiated bullet.
+// When riskLevel is provided, it determines the glyph shape.
+// Special tool names (bigquery_query, cloud_logging, gcs) override to
+// category-specific shapes regardless of risk level.
+func ToolBulletByRisk(toolName, riskLevel string) string {
+	// Special categories override risk-based shape
 	switch toolName {
-	case "grep", "glob", "read_file":
-		return ToolBulletReadStyle.Render("~")
-	case "write_file", "edit_file":
-		return ToolBulletWriteStyle.Render("~")
-	case "bash":
-		return ToolBulletExecStyle.Render("~")
-	case "bigquery_schema":
-		return ToolBulletReadStyle.Render("~")
 	case "bigquery_query":
-		return ToolBulletQueryStyle.Render("~")
+		return ToolBulletQueryStyle.Render("△")
 	case "cloud_logging", "gcs":
-		return ToolBulletDataStyle.Render("~")
+		return ToolBulletDataStyle.Render("□")
+	}
+
+	// Risk-based shape + color
+	switch riskLevel {
+	case "READ_ONLY":
+		return ToolBulletReadStyle.Render("○")
+	case "DML":
+		return ToolBulletWriteStyle.Render("◇")
+	case "DDL":
+		return ToolBulletWriteStyle.Render("◇")
+	case "DESTRUCTIVE":
+		return ToolBulletExecStyle.Render("●")
+	case "ADMIN":
+		return ToolBulletExecStyle.Render("●")
 	default:
-		return ToolBulletStyle.Render("~")
+		// Fallback: name-based classification when risk level unavailable
+		switch toolName {
+		case "grep", "glob", "read_file", "bigquery_schema":
+			return ToolBulletReadStyle.Render("○")
+		case "write_file", "edit_file":
+			return ToolBulletWriteStyle.Render("◇")
+		case "bash":
+			return ToolBulletExecStyle.Render("●")
+		default:
+			return ToolBulletStyle.Render("○")
+		}
 	}
 }
 

@@ -1,142 +1,167 @@
 # TODOS
 
-## Config Surface Audit
+## Infrastructure
 
-Audit all config fields to ensure every declared field is consumed by the code.
-Known gaps: `cost.auth` (unused), `agent.tool_timeout` (never reaches execution),
-custom `api_key_env` for OpenAI/Anthropic (may be validated but ignored).
+### Add .golangci.yml Linter Config
 
-**Why:** Config lies erode trust. Users set fields expecting behavior that doesn't happen.
-**Depends on:** Nothing. Can be done anytime.
-**Source:** Codex outside voice, eng review 2026-03-24.
+**What:** Create a .golangci.yml with project-appropriate linter rules.
 
-## app/ Package Refactor (Pattern B)
+**Why:** Currently falls back to `go vet` only. A proper linter config catches more issues and standardizes CI checks.
 
-When app/ exceeds 7 files or 1800 LOC, extract init logic into service packages.
-E.g., `bigquery.NewClient(cfg, resource)`, `platform.NewClients(cfg, resource)`.
-Keep `app.New()` as thin orchestrator that calls constructors and wires the graph.
+**Context:** Identified during eng review 2026-03-24 (Wave 3). The Makefile already has a `lint` target that checks for golangci-lint.
 
-**Why:** Both Claude and Codex independently validated Pattern B (push init into service
-packages) over Pattern A (sub-packages). Init knowledge belongs near the code it configures.
-**Depends on:** Next integration landing (Composer or dbt).
-**Smell test:** "How does BigQuery get built?" -> belongs in bigquery/.
-"When and why do we build BigQuery?" -> belongs in app/.
-**Source:** Eng review 2026-03-24, architecture issue A1.
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
 
----
+### Tests for Logging/GCS Tools and OpenAI/Anthropic Providers
 
-## Lessons from OpenCode/Crush Comparison (2026-03-24)
+**What:** Add test coverage for cloud_logging, gcs tools, and openai/anthropic provider packages.
 
-The following items emerged from a deep architectural comparison of Cascade vs
-OpenCode/Crush (Charm's 41K-star AI coding agent, same Go + Bubble Tea stack).
-Run `/office-hours` on these to decide scope and approach.
+**Why:** These packages shipped without dedicated tests. Current test strength is in agent, auth, config, oneshot, bigquery. The newer packages need parity.
 
-### Session Persistence (SQLite)
+**Context:** Eng review 2026-03-24 (Wave 4). Use MockProvider pattern from testutil/ and mock client interfaces. Follow patterns in tools/bigquery/*_test.go.
 
-Conversations are lost on exit. Crush stores sessions in SQLite (via sqlc + Goose
-migrations) so users can resume where they left off. Cascade already has SQLite
-expertise from the schema cache — the pattern is proven in this codebase.
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
 
-**Why:** Power users have multi-hour investigation sessions. Losing context on
-accidental exit or terminal crash is painful. Also enables: session history,
-conversation search, cross-session learning.
-**Effort:** S-M (human: ~3 days / CC: ~30min)
-**Depends on:** Nothing. Independent of all other work.
-**Source:** Crush comparison 2026-03-24.
+### PermissionPlanner Migration
+
+**What:** Migrate tools that need input-aware risk classification to implement the PermissionPlanner interface.
+
+**Why:** Some tools currently have static risk levels that should vary based on input (e.g., a bash command that reads vs writes). PermissionPlanner enables dynamic risk gating.
+
+**Context:** Eng review 2026-03-24 (Wave 5). The interface exists in tools/ — need to implement it for bash and potentially GCS tools.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### GCS Binary Detection Magic Bytes
+
+**What:** Use file magic bytes (not just extension) to detect binary files before attempting to read GCS objects.
+
+**Why:** Current detection relies on extension/heuristics. Magic byte detection prevents attempting to display binary content that would corrupt the terminal output.
+
+**Context:** Eng review 2026-03-24 (Wave 5). Scanner buffer already increased to 1MB. Add magic byte check before passing content through.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+## Architecture
+
+### app/ Package Refactor (Pattern B)
+
+**What:** When app/ exceeds 7 files or 1800 LOC, extract init logic into service packages (e.g., `bigquery.NewClient(cfg, resource)`, `platform.NewClients(cfg, resource)`).
+
+**Why:** Both Claude and Codex independently validated Pattern B (push init into service packages) over Pattern A (sub-packages). Init knowledge belongs near the code it configures. Keep `app.New()` as thin orchestrator.
+
+**Context:** Not needed yet — trigger when next integration lands (Composer or dbt). Smell test: "How does BigQuery get built?" belongs in bigquery/. "When and why do we build BigQuery?" belongs in app/. Source: eng review 2026-03-24.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Next integration landing (Composer or dbt)
 
 ### MCP Server Support
 
-Crush supports MCP (Model Context Protocol) with 3 transports: stdio, http,
-streamable HTTP. This lets users connect external tools (Composer, dbt, custom
-internal tools) without Cascade building every integration.
+**What:** Support Model Context Protocol with stdio, http, and streamable HTTP transports. Let users connect external tools without Cascade building every integration.
 
-**Why:** Instead of building a Composer tool, a dbt tool, a Dataflow tool — let
-users bring their own via MCP. This is the extensibility moat. Also unlocks
-community-contributed tools without modifying Cascade core.
-**Effort:** M-L (human: ~2 weeks / CC: ~2-3 hours)
-**Depends on:** Nothing. But dramatically changes the Phase 4+ roadmap — many
-planned tools could become MCP servers instead of built-in tools.
-**Source:** Crush comparison 2026-03-24.
+**Why:** Instead of building a Composer tool, a dbt tool, a Dataflow tool — let users bring their own via MCP. This is the extensibility moat. Also unlocks community-contributed tools. Dramatically changes the roadmap — many planned tools could become MCP servers.
+
+**Context:** Crush supports MCP with 3 transports. Source: Crush comparison 2026-03-24. Scoping via /office-hours before implementation.
+
+**Effort:** L
+**Priority:** P1
+**Depends on:** None
 
 ### Multi-Model Slots (Large + Small)
 
-Crush has two model slots: "large" (reasoning) and "small" (simple tasks),
-switchable mid-session. For Cascade, this could mean: Gemini 2.5 Pro for complex
-SQL generation and cross-service debugging, Flash for schema lookups, formatting,
-and simple queries.
+**What:** Two model slots (large for reasoning, small for simple tasks), switchable mid-session. Gemini Pro for complex SQL generation, Flash for schema lookups and formatting.
 
-**Why:** Cost optimization + speed. Simple tasks don't need the most expensive model.
-Schema lookups and formatting waste money on Pro when Flash handles them fine.
-**Effort:** S (human: ~2 days / CC: ~20min)
-**Depends on:** Nothing. Provider interface already supports model switching.
-**Source:** Crush comparison 2026-03-24.
+**Why:** Cost optimization + speed. Simple tasks don't need the most expensive model. Provider interface already supports model switching.
 
-### TUI Architecture: Alt Screen Trade-off
+**Context:** Crush has this pattern. Source: Crush comparison 2026-03-24.
 
-Root cause of recurring scroll + text selection conflicts: alt screen (xterm mode)
-disables terminal-native scroll/selection. No wheel-only mouse mode exists in the
-xterm protocol. Claude Code avoids this by not using alt screen at all.
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
 
-**Options explored:**
-- A) Drop alt screen — terminal handles scroll + selection natively (Claude Code model)
-- B) Keep alt screen + keyboard-only scroll (lazygit/k9s model)
-- C) Drop Bubble Tea entirely — custom render loop + Lip Gloss (simplest)
+## TUI
 
-**Current decision:** Keep alt screen + mouse mode (1 line/tick for smoother scroll).
-Revisit when/if UX model shifts toward conversational (non-dashboard) paradigm.
-**Full analysis:** `Projects/notes/Atomic Notes/TIL - Why Terminal TUI Apps Can't
-Have Both Scroll and Text Selection.md`
-**Source:** TUI investigation 2026-03-24, confirmed by Codex.
+### TUI Alt Screen Trade-off
 
----
+**What:** Root cause of recurring scroll + text selection conflicts: alt screen disables terminal-native scroll/selection. No wheel-only mouse mode exists in xterm protocol.
 
-## Color-Blind Tool Bullet Differentiation
+**Why:** Current decision: keep alt screen + mouse mode (1 line/tick for smoother scroll). Options explored: (A) drop alt screen — Claude Code model, (B) keep alt screen + keyboard-only — lazygit model, (C) drop Bubble Tea entirely — custom render loop.
 
-Add glyph shape differentiation to tool bullets alongside color coding.
-Currently: all bullets use `~` with color only (green/amber/red/cyan/indigo).
-Proposed: `○` read, `◇` write, `●` exec, `△` query, `□` data.
+**Context:** Revisit when/if UX model shifts toward conversational (non-dashboard) paradigm. Full analysis in personal notes. Source: TUI investigation 2026-03-24, confirmed by Codex.
 
-**Why:** Tool risk categories rely on color alone. Deuteranopia (red-green, ~8% of men)
-makes green (read/safe) and red (exec/dangerous) indistinguishable. The two most
-security-critical categories are the ones that collide.
-**Effort:** XS (human: ~2 hours / CC: ~5 min)
-**Depends on:** Nothing. Independent work. Shapes defined in DESIGN.md accessibility section.
-**Source:** Design review 2026-03-27, Codex + Claude subagent outside voices.
+**Effort:** L
+**Priority:** P3
+**Depends on:** None
 
----
+## Charm Libraries
 
-## Charm Ecosystem Libraries to Explore
+### huh — Terminal Forms
 
-Evaluate these charmbracelet libraries for adoption into Cascade's TUI stack.
-All three are MIT-licensed, actively maintained, and compatible with our Charm v2 ecosystem.
+**What:** Replace hand-rolled interactive components (model picker, confirmation dialog) with huh's form primitives. Unlocks richer flows: config setup wizard, project init, multi-step prompts.
 
-### huh — Terminal Forms (6.7k stars)
+**Why:** Embeds directly as Bubble Tea component. 6.7k stars, MIT, actively maintained, fits our Charm v2 stack.
 
-Replace hand-rolled interactive components (model picker, confirmation dialog) with
-huh's form primitives. Also unlocks richer flows: config setup wizard, project init,
-multi-step prompts. Embeds directly as a Bubble Tea component.
+**Context:** Migration candidates: `models.go` (model picker -> huh select), `confirm.go` (permission prompt -> huh confirm). New opportunities: `/config` interactive editor, first-run setup wizard. Repo: github.com/charmbracelet/huh
 
-**Candidates for migration:** `models.go` (model picker → huh select),
-`confirm.go` (permission prompt → huh confirm).
-**New opportunities:** `/config` interactive editor, first-run setup wizard.
-**Repo:** https://github.com/charmbracelet/huh
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
 
-### harmonica — Physics-Based Animations (1.5k stars)
+### harmonica — Physics-Based Animations
 
-Replace manual sine-wave interpolation in spinner pulse effects with proper
-spring/damping curves. Also enables smooth scroll easing and cursor animations.
-Small library, no dependencies.
+**What:** Replace manual sine-wave interpolation in spinner pulse effects with proper spring/damping curves. Enables smooth scroll easing and cursor animations.
 
-**Candidates:** `spinner.go` pulse animation, viewport scroll transitions.
-**Repo:** https://github.com/charmbracelet/harmonica
+**Why:** Small library, no dependencies. Proper physics instead of hand-rolled math. 1.5k stars.
 
-### log — Structured Colorful Logging (3.2k stars)
+**Context:** Candidates: `spinner.go` pulse animation, viewport scroll transitions. Repo: github.com/charmbracelet/harmonica
 
-Lip Gloss-styled structured logging for `--verbose`/`--debug` output. Drop-in
-replacement for stdlib log with leveled output and key-value fields that match
-Cascade's visual style.
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
 
-**Candidates:** Debug/verbose mode output, agent loop tracing, tool execution logs.
-**Repo:** https://github.com/charmbracelet/log
+### log — Structured Colorful Logging
 
-**Source:** Charm ecosystem evaluation 2026-03-25.
+**What:** Lip Gloss-styled structured logging for `--verbose`/`--debug` output. Drop-in replacement for stdlib log with leveled output and key-value fields.
+
+**Why:** Matches Cascade's visual style. 3.2k stars.
+
+**Context:** Candidates: debug/verbose mode output, agent loop tracing, tool execution logs. Repo: github.com/charmbracelet/log
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+## Completed
+
+### Config Surface Audit
+
+**What:** Audit all config fields to ensure every declared field is consumed by the code.
+
+**Context:** 30 fields audited, 28 were already used, 2 wired up (`agent.tool_timeout`, `cost.auth`). `api_key_env` was a false positive.
+
+**Completed:** v0.3.1.0 (2026-03-28)
+
+### Color-Blind Tool Bullet Differentiation
+
+**What:** Add glyph shape differentiation to tool bullets alongside color coding: `○` read, `◇` write, `●` exec, `△` query, `□` data.
+
+**Context:** Risk level now flows from agent loop through ToolStartEvent to TUI rendering. Name-based fallback preserved.
+
+**Completed:** v0.3.1.0 (2026-03-28)
+
+### Session Persistence (SQLite)
+
+**What:** Store conversations in SQLite so users can resume after exit. CLI flags `--resume` / `--session`, slash commands `/sessions` / `/save`, subcommand `cascade sessions`.
+
+**Context:** New `internal/persist/` package following schema cache SQLite patterns. Auto-saves after every turn and compaction.
+
+**Completed:** v0.3.1.0 (2026-03-28)

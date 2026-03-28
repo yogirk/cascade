@@ -100,7 +100,14 @@ func initBigQuery(ctx context.Context, cfg *config.Config, resource *auth.Resour
 	billingProject := cfg.Cost.BillingProject
 	billingDataset := cfg.Cost.BillingDataset
 	if billingProject != "" && billingDataset != "" && billingProject != project {
-		billingClient, err := bq.NewClient(ctx, billingProject, location, resource.TokenSource, cfg.Cost.PricePerTB)
+		billingTS := resource.TokenSource // default: same credentials as main project
+		if cfg.Cost.BillingAuth.Mode == "service_account_key" && cfg.Cost.BillingAuth.CredentialsFile != "" {
+			if ts, err := auth.TokenSourceFromKeyFile(ctx, cfg.Cost.BillingAuth.CredentialsFile); err == nil {
+				billingTS = ts
+			}
+			// Non-fatal: fall back to main credentials on error
+		}
+		billingClient, err := bq.NewClient(ctx, billingProject, location, billingTS, cfg.Cost.PricePerTB)
 		if err == nil {
 			clients[billingProject] = billingClient
 			billingPopulator := schema.NewPopulator(cache, &bqClientAdapter{client: billingClient})

@@ -35,6 +35,9 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 | Cloud Storage | Done | Browse buckets, list objects, read files (capped), metadata |
 | Platform Intelligence | Done | `/morning` briefing, cross-service signal correlation, CASCADE.md project config |
 | CASCADE.md | Done | Per-project config: critical tables, refresh schedules, alert thresholds |
+| Session persistence | Done | SQLite-backed, auto-save, `--resume`, `/sessions` |
+| Tool timeout | Done | Configurable per-tool timeout via `agent.tool_timeout` |
+| Color-blind bullets | Done | Shape-differentiated glyphs: ○ read, ◇ write, ● exec, △ query, □ data |
 
 ### Roadmap
 
@@ -178,7 +181,11 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - Interactive model picker (`/model`) with arrow key navigation
 - Custom markdown theme with borderless tables and alternating row dimming
 - Trackpad scroll support
-- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`, `/morning`
+- Session persistence: auto-saves to SQLite, resume with `--resume` or `--session <id>`
+- `cascade sessions` — list saved sessions, `cascade sessions rm <id>` — delete
+- Configurable tool timeout (`agent.tool_timeout` in config.toml, default 120s)
+- Color-blind accessible tool bullets: shape encodes action category alongside color
+- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`, `/morning`, `/sessions`, `/save`
 
 ## Architecture
 
