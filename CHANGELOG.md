@@ -17,6 +17,8 @@ All notable changes to Cascade are documented here. Format follows [Keep a Chang
 - **Turn separators**: Visual dividers between conversation turns
 - **Responsive status bar**: Width-breakpoint layout (collapses segments at narrow terminals)
 - **Split cost display**: Separate BQ and LLM token cost segments in status bar
+- **Shell escape**: `! <command>` runs a shell command inline and shows output in chat
+- **Tool reload**: `/reload` re-registers all tools (core + BigQuery + platform) without restarting
 - **ROADMAP.md**: Consolidated roadmap replacing GSD planning artifacts
 - **CHANGELOG.md**: Versioned changelog for gstack `/ship` workflow
 - **VERSION**: 4-digit version file for gstack `/ship` workflow
