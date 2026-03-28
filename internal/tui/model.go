@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -473,6 +474,17 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.input.Focus(), cmd)
 			}
 
+			// Shell escape: ! command
+			if strings.HasPrefix(text, "!") {
+				shellCmd := strings.TrimSpace(text[1:])
+				if shellCmd == "" {
+					return m, m.input.Focus()
+				}
+				m.chat.AddMessage(ChatMessage{Role: "user", Content: text})
+				m.status.SetMessage("Running...")
+				return m, tea.Batch(m.input.Focus(), m.runShellCommand(shellCmd))
+			}
+
 			// Add user message to chat
 			m.chat.AddMessage(ChatMessage{Role: "user", Content: text})
 
@@ -842,6 +854,25 @@ func renderCostBreakdown(entries []CostEntry, total, dailyBudget float64) (displ
 
 // handleSlashCommand processes slash commands entered by the user.
 // Returns a tea.Cmd for commands that need async work (e.g., clipboard).
+// runShellCommand executes a shell command and returns the output as a chat message.
+func (m *Model) runShellCommand(cmd string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.CommandContext(context.Background(), "sh", "-c", cmd).CombinedOutput()
+		output := strings.TrimRight(string(out), "\n")
+		if err != nil {
+			if output != "" {
+				output += "\n"
+			}
+			output += fmt.Sprintf("exit: %v", err)
+			return ChatMessage{Role: "tool", Content: output, ToolName: "shell", IsError: true}
+		}
+		if output == "" {
+			output = "(no output)"
+		}
+		return ChatMessage{Role: "tool", Content: output, ToolName: "shell"}
+	}
+}
+
 func (m *Model) handleSlashCommand(text string) tea.Cmd {
 	cmd := strings.TrimSpace(text)
 
@@ -862,8 +893,10 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /sync           Refresh schema cache",
 			"  /sessions       List saved sessions",
 			"  /save           Force-save current session",
+			"  /reload         Re-register all tools",
 			"",
 			"Shortcuts:",
+			"  ! <command>     Run shell command inline",
 			"  Enter           Send message",
 			"  Shift+Enter     New line",
 			"  ↑ / ↓           Input history",
@@ -1139,6 +1172,10 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		}
 		m.app.Agent.Session().NotifySave()
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: fmt.Sprintf("Session saved: %s", m.app.SessionID)})
+
+	case cmd == "/reload":
+		count := m.app.ReloadTools()
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: fmt.Sprintf("Tools reloaded: %d registered.", count)})
 
 	default:
 		m.chat.AddMessage(ChatMessage{

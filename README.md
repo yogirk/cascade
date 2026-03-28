@@ -185,7 +185,8 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - `cascade sessions` — list saved sessions, `cascade sessions rm <id>` — delete
 - Configurable tool timeout (`agent.tool_timeout` in config.toml, default 120s)
 - Color-blind accessible tool bullets: shape encodes action category alongside color
-- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`, `/morning`, `/sessions`, `/save`
+- Shell escape: `! <command>` runs a shell command inline and shows output in chat
+- Slash commands: `/help`, `/model`, `/compact`, `/sync`, `/cost`, `/insights`, `/logs`, `/morning`, `/sessions`, `/save`, `/reload`
 
 ## Architecture
 

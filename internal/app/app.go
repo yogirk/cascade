@@ -33,6 +33,7 @@ type App struct {
 	Config      *config.Config
 	Agent       *agent.Agent
 	Provider    provider.Provider
+	Registry    *tools.Registry
 	Permissions *permission.Engine
 	Events      chan types.Event
 	Approvals   chan types.ApprovalRequest
@@ -195,6 +196,7 @@ func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error)
 		Config:      cfg,
 		Agent:       ag,
 		Provider:    prov,
+		Registry:    registry,
 		Permissions: perms,
 		Events:      events,
 		Approvals:   approvals,
@@ -206,6 +208,19 @@ func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error)
 		Sessions:    sessionStore,
 		SessionID:   sessionID,
 	}, nil
+}
+
+// ReloadTools re-registers all tools into the existing registry.
+// Existing tools are overwritten; new tools are appended.
+func (a *App) ReloadTools() int {
+	core.RegisterAll(a.Registry)
+	if a.BQ != nil {
+		registerBQTools(a.Registry, a.BQ, &a.Config.Cost, a.Events)
+	}
+	if a.Platform != nil {
+		registerPlatformTools(a.Registry, a.Platform, a.Config)
+	}
+	return len(a.Registry.All())
 }
 
 // Close releases resources held by the App.
