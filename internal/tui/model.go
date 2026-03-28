@@ -136,9 +136,19 @@ func NewModel(application *app.App) Model {
 		)
 	}
 
-	// Hydrate chat with resumed session messages (if any)
+	// Hydrate chat with resumed session messages (if any).
+	// Skip system-only sessions (fresh start has a system prompt but no conversation).
 	if msgs := application.Agent.Session().Messages(); len(msgs) > 0 {
-		m.showWelcome = false
+		hasConversation := false
+		for _, msg := range msgs {
+			if msg.Role != types.RoleSystem {
+				hasConversation = true
+				break
+			}
+		}
+		if hasConversation {
+			m.showWelcome = false
+		}
 		for _, msg := range msgs {
 			switch msg.Role {
 			case types.RoleUser:
