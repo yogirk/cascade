@@ -1,7 +1,9 @@
 .PHONY: build test test-short lint clean
 
+VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
+
 build:
-	go build -o bin/cascade ./cmd/cascade/
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/cascade ./cmd/cascade/
 
 test:
 	go test ./... -count=1 -race

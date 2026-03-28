@@ -41,3 +41,9 @@ service-account*.json
 # Planning & specs (internal)
 .planning/
 specs/
+
+# Dev-internal docs (kept at root for gstack/Claude Code discovery, not shipped)
+CLAUDE.md
+DESIGN.md
+ROADMAP.md
+TODOS.md

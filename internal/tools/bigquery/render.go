@@ -26,7 +26,6 @@ var (
 // Shared styles
 var (
 	headerStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	cellStyle   = lipgloss.NewStyle().Foreground(textColor)
 	dimStyle    = lipgloss.NewStyle().Foreground(dimColor)
 )
 

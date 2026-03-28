@@ -1,8 +1,0 @@
-./annotations.pb.go
-./arrow.pb.go
-./avro.pb.go
-./protobuf.pb.go
-./storage.pb.go
-./storage_grpc.pb.go
-./stream.pb.go
-./table.pb.go

@@ -377,7 +377,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.renderer.Reset()
 			m.spinner.Stop()
 			m.status.SetToolName("")
-			m.chat.AddMessage(ChatMessage{Role: "error", Content: "Operation cancelled."})
+			m.chat.AddMessage(ChatMessage{Role: "error", Content: "Operation canceled."})
 			return m, m.input.Focus()
 		}
 		// Idle: quit

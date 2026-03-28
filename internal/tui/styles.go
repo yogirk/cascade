@@ -51,7 +51,6 @@ var (
 	successColor color.Color
 	warningColor color.Color
 	dangerColor  color.Color
-	barBgColor   color.Color
 	toolColor    color.Color
 	planColor    color.Color
 
@@ -65,12 +64,6 @@ var (
 	inputBgColor        color.Color
 
 	settledAccent color.Color
-
-	// Google brand colors — fixed, not theme-dependent.
-	googleBlue   color.Color = lipgloss.Color("#4285F4")
-	googleRed    color.Color = lipgloss.Color("#EA4335")
-	googleYellow color.Color = lipgloss.Color("#FBBC05")
-	googleGreen  color.Color = lipgloss.Color("#34A853")
 )
 
 // Spinner palette — adaptive for light and dark terminals.
@@ -138,17 +131,12 @@ var (
 
 // Welcome banner styles.
 var (
-	gBlue   lipgloss.Style
-	gRed    lipgloss.Style
-	gYellow lipgloss.Style
-	gGreen  lipgloss.Style
 	gBright lipgloss.Style
 	gDim    lipgloss.Style
 
 	cascadeBg1 lipgloss.Style
 	cascadeBg2 lipgloss.Style
 	cascadeBg3 lipgloss.Style
-	cascadeBg4 lipgloss.Style
 )
 
 // Pre-computed badge strings (avoid allocating styles on every render).
@@ -174,7 +162,6 @@ func initPalette() {
 	successColor = ld(lipgloss.Color("#047857"), lipgloss.Color("#34D399"))   // Green (light darkened for WCAG AA ~5.0:1)
 	warningColor = ld(lipgloss.Color("#92400E"), lipgloss.Color("#FBBF24"))   // Amber (light darkened for WCAG AA ~6.5:1)
 	dangerColor = ld(lipgloss.Color("#B91C1C"), lipgloss.Color("#F87171"))    // Red (light darkened for WCAG AA ~5.4:1)
-	barBgColor = ld(lipgloss.Color("#F3F4F6"), lipgloss.Color("#111827"))     // Status bar bg
 	toolColor = ld(lipgloss.Color("#0E7490"), lipgloss.Color("#22D3EE"))      // Cyan — query tools (cost-bearing, distinct from write warnings)
 	planColor = ld(lipgloss.Color("#4F46E5"), lipgloss.Color("#818CF8"))      // Indigo — also used as data tool color
 
@@ -371,17 +358,12 @@ func initPalette() {
 	mpProvStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
 
 	// ── Welcome banner styles ──
-	gBlue = lipgloss.NewStyle().Foreground(googleBlue)
-	gRed = lipgloss.NewStyle().Foreground(googleRed)
-	gYellow = lipgloss.NewStyle().Foreground(googleYellow)
-	gGreen = lipgloss.NewStyle().Foreground(googleGreen)
 	gBright = lipgloss.NewStyle().Foreground(brightColor)
 	gDim = lipgloss.NewStyle().Foreground(dimTextColor)
 
 	cascadeBg1 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0C4A6E"), lipgloss.Color("#0369A1")))
 	cascadeBg2 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0369A1"), lipgloss.Color("#0EA5E9")))
 	cascadeBg3 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0EA5E9"), lipgloss.Color("#38BDF8")))
-	cascadeBg4 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#38BDF8"), lipgloss.Color("#7DD3FC")))
 
 	// ── Pre-computed badges ──
 	riskReadBadge = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")

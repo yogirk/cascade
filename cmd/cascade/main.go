@@ -18,7 +18,7 @@ import (
 	"github.com/yogirk/cascade/internal/tui"
 )
 
-var version = "0.1.0-dev"
+var version = "dev" // set at build time via -ldflags from VERSION file
 
 func main() {
 	rootCmd := &cobra.Command{

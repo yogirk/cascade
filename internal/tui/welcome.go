@@ -177,11 +177,3 @@ func (w WelcomeModel) View() string {
 
 	return content
 }
-
-// padTo pads a string with spaces to a target width.
-func padTo(s string, width int) string {
-	if len(s) >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-len(s))
-}

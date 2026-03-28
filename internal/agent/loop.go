@@ -257,7 +257,7 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		case a.approvals <- request:
 		case <-ctx.Done():
 			return &tools.Result{
-				Content: fmt.Sprintf("Permission request cancelled for %s.", call.Name),
+				Content: fmt.Sprintf("Permission request canceled for %s.", call.Name),
 				IsError: true,
 			}
 		}
@@ -267,7 +267,7 @@ func (a *Agent) executeWithPermission(ctx context.Context, call types.ToolCall) 
 		case decision = <-responseCh:
 		case <-ctx.Done():
 			return &tools.Result{
-				Content: fmt.Sprintf("Permission request cancelled for %s.", call.Name),
+				Content: fmt.Sprintf("Permission request canceled for %s.", call.Name),
 				IsError: true,
 			}
 		}

@@ -316,8 +316,14 @@ func sniffBinary(ctx context.Context, obj *storage.ObjectHandle) (bool, error) {
 		{[]byte("\x28\xb5\x2f\xfd"), "Zstandard"},
 		{[]byte("\x89PNG"), "PNG"},
 		{[]byte("\xff\xd8\xff"), "JPEG"},
-		{[]byte("PK\x03\x04"), "ZIP"},
+		{[]byte("PK\x03\x04"), "ZIP/DOCX/XLSX"},
 		{[]byte("%PDF"), "PDF"},
+		{[]byte("GIF8"), "GIF"},
+		{[]byte("\x7fELF"), "ELF"},
+		{[]byte("\xfe\xed\xfa\xce"), "Mach-O (32-bit)"},
+		{[]byte("\xfe\xed\xfa\xcf"), "Mach-O (64-bit)"},
+		{[]byte("\xce\xfa\xed\xfe"), "Mach-O (32-bit, swapped)"},
+		{[]byte("\xcf\xfa\xed\xfe"), "Mach-O (64-bit, swapped)"},
 	}
 
 	for _, sig := range signatures {

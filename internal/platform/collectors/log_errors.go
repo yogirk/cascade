@@ -233,9 +233,7 @@ func extractResourceRefs(entry *logging.Entry) []string {
 				text = string(data)
 			}
 		}
-		for _, ref := range extractGCSRefs(text) {
-			refs = append(refs, ref)
-		}
+		refs = append(refs, extractGCSRefs(text)...)
 	}
 
 	return refs

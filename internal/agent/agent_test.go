@@ -912,7 +912,7 @@ func TestRunTurn_ToolExecutionError(t *testing.T) {
 	}
 }
 
-// slowMockTool sleeps until context is cancelled or duration elapses.
+// slowMockTool sleeps until context is canceled or duration elapses.
 type slowMockTool struct {
 	name     string
 	duration time.Duration

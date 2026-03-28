@@ -1,7 +1,0 @@
-./bash.go
-./edit.go
-./glob.go
-./grep.go
-./read.go
-./register.go
-./write.go

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -99,7 +100,7 @@ func resolveVertex(m *ModelAuth, resource *ResourceAuth, vertexProject, vertexLo
 
 	m.GenAIConfig = &genai.ClientConfig{
 		Backend:    genai.BackendVertexAI,
-		HTTPClient: oauth2.NewClient(nil, resource.TokenSource),
+		HTTPClient: oauth2.NewClient(context.TODO(), resource.TokenSource),
 		Project:    project,
 		Location:   location,
 	}

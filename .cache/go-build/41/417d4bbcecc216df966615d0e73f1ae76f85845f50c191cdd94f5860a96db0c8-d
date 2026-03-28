@@ -1,7 +1,0 @@
-./compact.go
-./events.go
-./governor.go
-./loop.go
-./session.go
-./agent_test.go
-./compact_test.go

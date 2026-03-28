@@ -96,7 +96,7 @@ func parseClaude(s string) string {
 	var family, version string
 	for _, f := range []string{"opus", "sonnet", "haiku"} {
 		if strings.Contains(s, f) {
-			family = strings.Title(f)
+			family = strings.ToUpper(f[:1]) + f[1:]
 			break
 		}
 	}
