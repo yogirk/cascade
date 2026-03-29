@@ -63,7 +63,7 @@ func NewChatModel(width, height int) ChatModel {
 	km.HalfPageUp.SetEnabled(false)
 	km.HalfPageDown.SetEnabled(false)
 	vp.KeyMap = km
-	vp.MouseWheelEnabled = false // Handled by OnMouse in model.go to track followTail
+	vp.MouseWheelEnabled = true // Viewport handles scroll; followTail tracked in Update
 	vp.MouseWheelDelta = 3
 
 	return ChatModel{
@@ -78,9 +78,20 @@ func NewChatModel(width, height int) ChatModel {
 }
 
 // Update handles viewport messages (scrolling, etc.).
+// Tracks followTail state when the viewport handles mouse wheel internally.
 func (c ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 	var cmd tea.Cmd
 	c.viewport, cmd = c.viewport.Update(msg)
+
+	// After viewport processes a wheel event, sync followTail
+	if _, ok := msg.(tea.MouseWheelMsg); ok {
+		if c.viewport.AtBottom() {
+			c.followTail = true
+		} else {
+			c.followTail = false
+		}
+	}
+
 	return c, cmd
 }
 

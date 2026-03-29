@@ -296,17 +296,7 @@ func (m Model) View() tea.View {
 	// Trade-off: native text selection requires Option+drag (macOS).
 	// TODO: fix at Bubble Tea level to support wheel-only mouse mode.
 	v.MouseMode = tea.MouseModeCellMotion
-	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
-		if wheel, ok := msg.(tea.MouseWheelMsg); ok {
-			switch wheel.Button {
-			case tea.MouseWheelUp:
-				m.chat.ScrollUp(1)
-			case tea.MouseWheelDown:
-				m.chat.ScrollDown(1)
-			}
-		}
-		return nil
-	}
+	// Mouse wheel handled by viewport internally; followTail tracked in chat.Update()
 	return v
 }
 
