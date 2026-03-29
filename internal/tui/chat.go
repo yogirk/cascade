@@ -63,7 +63,7 @@ func NewChatModel(width, height int) ChatModel {
 	km.HalfPageUp.SetEnabled(false)
 	km.HalfPageDown.SetEnabled(false)
 	vp.KeyMap = km
-	vp.MouseWheelEnabled = true
+	vp.MouseWheelEnabled = false // Handled by OnMouse in model.go to track followTail
 	vp.MouseWheelDelta = 3
 
 	return ChatModel{
@@ -99,22 +99,28 @@ func (c *ChatModel) AddMessage(msg ChatMessage) {
 	c.rendered = append(c.rendered, r)
 	c.cache += r
 
-	c.viewport.SetContent(c.cache)
-	if c.followTail {
-		c.viewport.GotoBottom()
-	}
+	c.setContentPreserveScroll(c.cache)
 }
 
 // SetStreamingContent appends in-progress streaming text to the cached
 // transcript. No historical messages are re-rendered.
 func (c *ChatModel) SetStreamingContent(content string) {
 	if content != "" {
-		c.viewport.SetContent(c.cache + content)
+		c.setContentPreserveScroll(c.cache + content)
 	} else {
-		c.viewport.SetContent(c.cache)
+		c.setContentPreserveScroll(c.cache)
 	}
+}
+
+// setContentPreserveScroll updates viewport content while preserving
+// the user's scroll position when followTail is false.
+func (c *ChatModel) setContentPreserveScroll(content string) {
+	yOffset := c.viewport.YOffset()
+	c.viewport.SetContent(content)
 	if c.followTail {
 		c.viewport.GotoBottom()
+	} else {
+		c.viewport.SetYOffset(yOffset)
 	}
 }
 
@@ -276,10 +282,7 @@ func (c *ChatModel) rebuildCache() {
 		sb.WriteString(r)
 	}
 	c.cache = sb.String()
-	c.viewport.SetContent(c.cache)
-	if c.followTail {
-		c.viewport.GotoBottom()
-	}
+	c.setContentPreserveScroll(c.cache)
 }
 
 // --- Message rendering (stateless, called once per message) ---

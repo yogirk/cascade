@@ -622,16 +622,19 @@ func TestChatModel_Clear(t *testing.T) {
 	}
 }
 
-func TestChatModel_MouseWheelScroll(t *testing.T) {
+func TestChatModel_ScrollUp(t *testing.T) {
 	chat := NewChatModel(80, 5)
 	for i := 0; i < 20; i++ {
 		chat.AddMessage(ChatMessage{Role: "assistant", Content: fmt.Sprintf("message %d", i)})
 	}
 
 	before := chat.viewport.YOffset()
-	updated, _ := chat.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
-	if updated.viewport.YOffset() >= before {
-		t.Fatalf("expected mouse wheel up to scroll transcript up, before=%d after=%d", before, updated.viewport.YOffset())
+	chat.ScrollUp(3)
+	if chat.viewport.YOffset() >= before {
+		t.Fatalf("expected scroll up to decrease YOffset, before=%d after=%d", before, chat.viewport.YOffset())
+	}
+	if chat.followTail {
+		t.Error("expected followTail=false after ScrollUp")
 	}
 }
 
