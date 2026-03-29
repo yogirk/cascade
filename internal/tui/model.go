@@ -452,6 +452,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.chat.ToggleExpand()
 		return m, nil
 
+	case key == "ctrl+e":
+		// Ctrl+E: toggle expand on most recent truncated tool output (works while typing)
+		m.chat.ToggleExpand()
+		return m, nil
+
 	case m.keys.Submit.Matches(key):
 		if m.state == StateIdle && m.input.Focused() {
 			text := m.input.Value()
@@ -901,6 +906,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  Shift+Enter     New line",
 			"  ↑ / ↓           Input history",
 			"  PgUp / PgDown   Scroll chat",
+			"  Ctrl+E          Expand/collapse last tool output",
 			"  Ctrl+Y          Copy last response",
 			"  Shift+Tab       Cycle permission mode",
 			"  Ctrl+C          Cancel / quit",
