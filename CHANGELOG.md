@@ -2,6 +2,23 @@
 
 All notable changes to Cascade are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2.0] — 2026-03-29
+
+### Added
+
+- **Shell escape**: `! <command>` runs a shell command inline and shows output in chat
+- **Tool reload**: `/reload` re-registers all tools without restarting
+- **Compact tool rendering**: Tool headers use dim name (not bold), show value only (e.g., `src/main.go` not `file_path=src/main.go`), truncated to 40 characters
+- **3-line default collapse**: Tool output shows 3 lines by default with `... [N more lines] Ctrl+E` indicator. Errors and diffs still show in full
+- **Consecutive tool grouping**: Tool calls within the same turn render with zero spacing between them
+- **Ctrl+E cycling**: Each press expands the next collapsed tool output (most recent first). When all expanded, collapses them all
+
+### Fixed
+
+- Welcome screen restored on fresh start (session hydration was hiding it due to system prompt counting as a message)
+- Viewport no longer yanks to bottom when scrolled up during streaming/tool execution (save/restore YOffset around SetContent, disable viewport internal mouse wheel bypass)
+- Mouse wheel scroll restored after followTail tracking fix (re-enabled viewport internal handling, track followTail in chat.Update)
+
 ## [0.3.1.0] — 2026-03-28
 
 ### Added
