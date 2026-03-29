@@ -211,6 +211,12 @@ func TestRenderToolMessage(t *testing.T) {
 	if !containsStr(rendered, "read_file") {
 		t.Error("tool message should contain tool name")
 	}
+	if !containsStr(rendered, "src/main.go") {
+		t.Error("compact args should show value without key name")
+	}
+	if containsStr(rendered, "file_path=") {
+		t.Error("compact args should not show key=value format")
+	}
 }
 
 func TestRenderToolMessage_Error(t *testing.T) {
@@ -667,23 +673,26 @@ func TestToolOutputTruncation_Short(t *testing.T) {
 }
 
 func TestToolOutputTruncation_Long(t *testing.T) {
-	// Long output (> 13 lines) should show head + tail with omission
+	// Long output (> 3 lines) should show first 3 + "more lines" indicator
 	lines := make([]string, 30)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line-%d", i)
 	}
 	msg := ChatMessage{Role: "tool", ToolName: "bash", Content: strings.Join(lines, "\n")}
 	rendered := renderMessage(msg, 80)
-	if !containsStr(rendered, "omitted") {
-		t.Error("long output should show omission marker")
+	if !containsStr(rendered, "more lines") {
+		t.Error("long output should show 'more lines' indicator")
 	}
-	// Should contain first line
+	// Should contain first 3 lines
 	if !containsStr(rendered, "line-0") {
 		t.Error("truncated output should contain first line")
 	}
-	// Should contain last line
-	if !containsStr(rendered, "line-29") {
-		t.Error("truncated output should contain last line")
+	if !containsStr(rendered, "line-2") {
+		t.Error("truncated output should contain third line")
+	}
+	// Should NOT contain lines beyond the default visible 3
+	if containsStr(rendered, "line-29") {
+		t.Error("truncated output should not contain last line when collapsed")
 	}
 }
 

@@ -105,8 +105,13 @@ func (c *ChatModel) AddMessage(msg ChatMessage) {
 	idx := len(c.messages)
 	c.messages = append(c.messages, msg)
 
-	// Render just this message and append to cache
-	r := renderMessageAt(msg, c.width, idx) + "\n\n"
+	// Consecutive tool messages get tight spacing (no blank line between them).
+	// Everything else gets a blank line separator.
+	spacing := "\n\n"
+	if msg.Role == "tool" && idx > 0 && c.messages[idx-1].Role == "tool" {
+		spacing = "\n"
+	}
+	r := renderMessageAt(msg, c.width, idx) + spacing
 	c.rendered = append(c.rendered, r)
 	c.cache += r
 
@@ -210,7 +215,7 @@ func (c *ChatModel) ToggleExpand() bool {
 			continue
 		}
 		lines := strings.Split(strings.TrimRight(display, "\n"), "\n")
-		if len(lines) <= 13 { // headLines + tailLines
+		if len(lines) <= 3 { // defaultVisible
 			continue
 		}
 		// Found a truncated tool message — toggle it
@@ -288,7 +293,11 @@ func (c *ChatModel) rebuildCache() {
 	var sb strings.Builder
 	for i, msg := range c.messages {
 		expanded := c.expandedSet[i]
-		r := renderMessageExpanded(msg, c.width, i, expanded) + "\n\n"
+		spacing := "\n\n"
+		if msg.Role == "tool" && i > 0 && c.messages[i-1].Role == "tool" {
+			spacing = "\n"
+		}
+		r := renderMessageExpanded(msg, c.width, i, expanded) + spacing
 		c.rendered[i] = r
 		sb.WriteString(r)
 	}
@@ -358,11 +367,12 @@ func turnSeparator(width int) string {
 	return SeparatorStyle.Render(strings.Repeat("─", w))
 }
 
-// renderToolMessage renders a tool call with ~ bullet, name, args, and indented output.
+// renderToolMessage renders a tool call with shape bullet, dim name, compact args,
+// and indented output collapsed to 3 lines by default.
 func renderToolMessage(msg ChatMessage, expanded bool) string {
 	var sb strings.Builder
 
-	// Header: ∞ tool_name args (bullet color by tool category)
+	// Header: ○ tool_name args (shape bullet + dim name + dimmer args)
 	sb.WriteString(ToolBulletByRisk(msg.ToolName, msg.ToolRiskLevel))
 	sb.WriteString(" ")
 
@@ -372,7 +382,7 @@ func renderToolMessage(msg ChatMessage, expanded bool) string {
 	}
 	sb.WriteString(ToolNameStyle.Render(name))
 
-	args := abbreviateArgs(msg.ToolArgs)
+	args := compactArgs(msg.ToolArgs)
 	if args != "" {
 		sb.WriteString(" ")
 		sb.WriteString(StatusDimStyle.Render(args))
@@ -389,8 +399,8 @@ func renderToolMessage(msg ChatMessage, expanded bool) string {
 
 	sb.WriteString("\n")
 
+	// Errors: show in full (user needs the stack trace)
 	if msg.IsError {
-		// Error output: red with "!" prefix
 		lines := strings.Split(strings.TrimRight(display, "\n"), "\n")
 		for _, line := range lines {
 			sb.WriteString(ToolErrorStyle.Render("! " + line))
@@ -399,49 +409,74 @@ func renderToolMessage(msg ChatMessage, expanded bool) string {
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
-	// Check if it's a diff
+	// Diffs: show in full (truncation hides context)
 	if isDiff(display) {
 		sb.WriteString(renderDiff(display))
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
-	// Normal output: show first + last lines for long output, or full if expanded
+	// Normal output: 3 lines default, expandable with Ctrl+E
 	lines := strings.Split(strings.TrimRight(display, "\n"), "\n")
-	headLines := 10
-	tailLines := 3
-	maxLines := headLines + tailLines
+	const defaultVisible = 3
 
-	if len(lines) <= maxLines || expanded {
+	if len(lines) <= defaultVisible || expanded {
 		for _, line := range lines {
 			sb.WriteString("    ")
 			sb.WriteString(StatusDimStyle.Render(line))
 			sb.WriteString("\n")
 		}
-		if expanded && len(lines) > maxLines {
+		if expanded && len(lines) > defaultVisible {
 			sb.WriteString("    ")
-			sb.WriteString(AssistantBulletStyle.Faint(true).Render("[Space to collapse]"))
+			sb.WriteString(StatusDimStyle.Faint(true).Render("[Ctrl+E to collapse]"))
 			sb.WriteString("\n")
 		}
 	} else {
-		for _, line := range lines[:headLines] {
-			sb.WriteString("    ")
-			sb.WriteString(StatusDimStyle.Render(line))
-			sb.WriteString("\n")
-		}
-		omitted := len(lines) - headLines - tailLines
-		sb.WriteString("    ")
-		sb.WriteString(StatusDimStyle.Render(fmt.Sprintf("··· %d lines omitted ···", omitted)))
-		sb.WriteString("\n")
-		for _, line := range lines[len(lines)-tailLines:] {
+		for _, line := range lines[:defaultVisible] {
 			sb.WriteString("    ")
 			sb.WriteString(StatusDimStyle.Render(line))
 			sb.WriteString("\n")
 		}
 		sb.WriteString("    ")
-		sb.WriteString(AssistantBulletStyle.Faint(true).Render("[Space to expand]"))
+		sb.WriteString(StatusDimStyle.Faint(true).Render(fmt.Sprintf("... [%d more lines] Ctrl+E", len(lines)-defaultVisible)))
 		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// compactArgs extracts key values from tool args for a compact header display.
+// Returns just the values (e.g., "src/main.go" not "file_path=src/main.go"),
+// truncated to 40 characters.
+func compactArgs(input json.RawMessage) string {
+	if len(input) == 0 {
+		return ""
+	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return ""
+	}
+
+	// Priority keys: show the most meaningful value
+	for _, key := range []string{"file_path", "command", "sql", "pattern", "action", "query", "bucket"} {
+		if v, ok := args[key]; ok {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 40 {
+				s = s[:37] + "..."
+			}
+			return s
+		}
+	}
+
+	// Fallback: first value
+	for _, v := range args {
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 40 {
+			s = s[:37] + "..."
+		}
+		return s
+	}
+
+	return ""
 }
 
 // isDiff checks if content looks like a unified diff.

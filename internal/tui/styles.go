@@ -241,8 +241,8 @@ func initPalette() {
 	ToolBulletDataStyle = lipgloss.NewStyle().
 		Foreground(planColor)
 
-	// ToolNameStyle styles the tool name (bold, default fg).
-	ToolNameStyle = lipgloss.NewStyle().Bold(true)
+	// ToolNameStyle styles the tool name (dim, not bold — subordinate to assistant narrative).
+	ToolNameStyle = lipgloss.NewStyle().Foreground(dimTextColor)
 
 	// ToolOutputStyle styles indented tool output (dim, 4-space left padding).
 	ToolOutputStyle = lipgloss.NewStyle().
