@@ -198,10 +198,12 @@ func (c *ChatModel) Clear() {
 	c.viewport.GotoBottom()
 }
 
-// ToggleExpand toggles the expanded state of the most recent truncated tool
-// message and rebuilds the cache. Returns true if a message was toggled.
+// ToggleExpand cycles through truncated tool messages in reverse order.
+// Each press expands the next collapsed message. When all are expanded,
+// the next press collapses them all.
 func (c *ChatModel) ToggleExpand() bool {
-	// Find the most recent truncated tool message
+	// Collect indices of all expandable tool messages (truncated, non-error, non-diff)
+	var expandable []int
 	for i := len(c.messages) - 1; i >= 0; i-- {
 		msg := c.messages[i]
 		if msg.Role != "tool" || msg.IsError {
@@ -218,11 +220,28 @@ func (c *ChatModel) ToggleExpand() bool {
 		if len(lines) <= 3 { // defaultVisible
 			continue
 		}
-		// Found a truncated tool message — toggle it
-		c.expandedSet[i] = !c.expandedSet[i]
-		c.rebuildCache()
-		return true
+		expandable = append(expandable, i)
 	}
+
+	if len(expandable) == 0 {
+		return false
+	}
+
+	// Find the first collapsed message (most recent first)
+	for _, idx := range expandable {
+		if !c.expandedSet[idx] {
+			c.expandedSet[idx] = true
+			c.rebuildCache()
+			return true
+		}
+	}
+
+	// All expanded — collapse them all
+	for _, idx := range expandable {
+		delete(c.expandedSet, idx)
+	}
+	c.rebuildCache()
+	return true
 	return false
 }
 
