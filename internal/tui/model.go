@@ -112,7 +112,7 @@ func NewModel(application *app.App) Model {
 
 	project := application.Config.GCP.Project
 	datasets := application.Config.BigQuery.Datasets
-	welcome := NewWelcomeModel(mode, project, datasets)
+	welcome := NewWelcomeModel(mode, project, datasets, application.Version)
 
 	m := Model{
 		app:         application,

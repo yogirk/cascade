@@ -140,6 +140,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer application.Close()
+	application.Version = version
 
 	model := tui.NewModel(application)
 	p := tea.NewProgram(model)

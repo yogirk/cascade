@@ -44,6 +44,7 @@ type App struct {
 	CascadeMD   *config.CascadeMD      // nil if no CASCADE.md found
 	Sessions    *persist.SQLiteStore   // nil if session persistence unavailable
 	SessionID   string                 // current session ID
+	Version     string                 // app version (set by caller)
 }
 
 // New creates a fully-wired App from the given configuration.

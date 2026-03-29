@@ -410,7 +410,7 @@ func TestModeBadge(t *testing.T) {
 }
 
 func TestWelcomeView(t *testing.T) {
-	w := NewWelcomeModel(permission.ModeAsk, "my-project", []string{"hacker_news"})
+	w := NewWelcomeModel(permission.ModeAsk, "my-project", []string{"hacker_news"}, "0.3.2.0")
 	w.SetSize(100, 30)
 	view := w.View()
 	if !containsStr(view, "Cascade") {

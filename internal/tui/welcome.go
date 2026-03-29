@@ -14,17 +14,19 @@ type WelcomeModel struct {
 	mode     permission.Mode
 	project  string   // GCP project ID
 	datasets []string // configured BQ datasets
+	version  string   // app version
 	authOK   bool     // GCP resource auth succeeded
 	width    int
 	height   int
 }
 
 // NewWelcomeModel creates a new welcome banner.
-func NewWelcomeModel(mode permission.Mode, project string, datasets []string) WelcomeModel {
+func NewWelcomeModel(mode permission.Mode, project string, datasets []string, version string) WelcomeModel {
 	return WelcomeModel{
 		mode:     mode,
 		project:  project,
 		datasets: datasets,
+		version:  version,
 		authOK:   true, // assume OK unless explicitly set
 	}
 }
@@ -141,7 +143,11 @@ func (w WelcomeModel) View() string {
 	bodyW := lipgloss.Width(body)
 
 	// === Title line ===
-	titleLabel := " " + bright.Render("Cascade") + dim.Render(" v0.1.0-dev") + " "
+	ver := w.version
+	if ver == "" {
+		ver = "dev"
+	}
+	titleLabel := " " + bright.Render("Cascade") + dim.Render(" v"+ver) + " "
 	titleLabelW := lipgloss.Width(titleLabel)
 	trailW := bodyW - titleLabelW - 3
 	if trailW < 0 {
