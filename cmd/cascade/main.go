@@ -20,6 +20,17 @@ import (
 
 var version = "dev" // set at build time via -ldflags from VERSION file
 
+func init() {
+	// Fallback: if ldflags weren't used, read VERSION file from repo root
+	if version == "dev" {
+		if data, err := os.ReadFile("VERSION"); err == nil {
+			if v := strings.TrimSpace(string(data)); v != "" {
+				version = v
+			}
+		}
+	}
+}
+
 func main() {
 	rootCmd := &cobra.Command{
 		Use:     "cascade",
