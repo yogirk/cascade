@@ -492,6 +492,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 			// Add user message to chat
 			m.chat.AddMessage(ChatMessage{Role: "user", Content: text})
+			m.chat.ResumeFollow() // Re-enable auto-follow when user sends a new message
 
 			// Start agent turn — begin elapsed timer immediately
 			m.state = StateStreaming
@@ -536,7 +537,6 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 	switch e := event.(type) {
 	case *types.TurnStartEvent:
 		_ = e
-		m.chat.ResumeFollow() // New turn: auto-scroll to follow output
 		return m, m.pollEvents()
 
 	case *types.TokenEvent:
