@@ -12,7 +12,7 @@ import (
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
-	Role          string          // "user", "assistant", "tool", "error", "system"
+	Role          string // "user", "assistant", "tool", "error", "system"
 	Content       string
 	ToolName      string          // for role="tool"
 	ToolArgs      json.RawMessage // for role="tool"
@@ -242,7 +242,6 @@ func (c *ChatModel) ToggleExpand() bool {
 	}
 	c.rebuildCache()
 	return true
-	return false
 }
 
 // LastAssistantContent returns the raw content of the most recent assistant message.
@@ -372,7 +371,6 @@ func renderMessageFull(msg ChatMessage, width int, showSep bool, expanded bool) 
 		return msg.Content
 	}
 }
-
 
 // turnSeparator renders a dim horizontal rule for visual turn separation.
 func turnSeparator(width int) string {

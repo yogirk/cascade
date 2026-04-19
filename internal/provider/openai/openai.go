@@ -113,37 +113,39 @@ func (p *OpenAIProvider) GenerateStream(ctx context.Context, messages []types.Me
 			return
 		}
 
-		// Extract final response from accumulator
-		completion := acc.Choices[0]
-		var toolCalls []types.ToolCall
-		for _, tc := range completion.Message.ToolCalls {
-			inputJSON := json.RawMessage(tc.Function.Arguments)
-			toolCalls = append(toolCalls, types.ToolCall{
-				ID:    tc.ID,
-				Name:  tc.Function.Name,
-				Input: inputJSON,
-			})
-		}
-
-		var usage *types.Usage
-		if acc.Usage.TotalTokens > 0 {
-			usage = &types.Usage{
-				PromptTokens:     int32(acc.Usage.PromptTokens),
-				CompletionTokens: int32(acc.Usage.CompletionTokens),
-				TotalTokens:      int32(acc.Usage.TotalTokens),
-			}
-		}
-
-		result <- provider.StreamResult{
-			Response: &types.Response{
-				Text:      strings.Join(textParts, ""),
-				ToolCalls: toolCalls,
-				Usage:     usage,
-			},
-		}
+		result <- provider.StreamResult{Response: buildResponse(textParts, acc)}
 	}()
 
 	return provider.NewStream(tokens, result, cancel), nil
+}
+
+func buildResponse(textParts []string, acc oai.ChatCompletionAccumulator) *types.Response {
+	response := &types.Response{
+		Text: strings.Join(textParts, ""),
+	}
+
+	if acc.Usage.TotalTokens > 0 {
+		response.Usage = &types.Usage{
+			PromptTokens:     int32(acc.Usage.PromptTokens),
+			CompletionTokens: int32(acc.Usage.CompletionTokens),
+			TotalTokens:      int32(acc.Usage.TotalTokens),
+		}
+	}
+
+	if len(acc.Choices) == 0 {
+		return response
+	}
+
+	for _, tc := range acc.Choices[0].Message.ToolCalls {
+		inputJSON := json.RawMessage(tc.Function.Arguments)
+		response.ToolCalls = append(response.ToolCalls, types.ToolCall{
+			ID:    tc.ID,
+			Name:  tc.Function.Name,
+			Input: inputJSON,
+		})
+	}
+
+	return response
 }
 
 // convertMessages converts Cascade messages to OpenAI chat messages.

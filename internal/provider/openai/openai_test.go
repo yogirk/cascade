@@ -5,6 +5,8 @@ import (
 	"io"
 	"testing"
 
+	oai "github.com/openai/openai-go/v3"
+
 	"github.com/yogirk/cascade/internal/provider"
 	"github.com/yogirk/cascade/pkg/types"
 )
@@ -291,6 +293,20 @@ func TestConvertTools_MultipleTools(t *testing.T) {
 		if fn["name"] != name {
 			t.Errorf("tool[%d] name = %v, want %q", i, fn["name"], name)
 		}
+	}
+}
+
+func TestBuildResponse_EmptyAccumulator(t *testing.T) {
+	resp := buildResponse([]string{"partial", " response"}, oai.ChatCompletionAccumulator{})
+
+	if resp.Text != "partial response" {
+		t.Fatalf("Text = %q, want %q", resp.Text, "partial response")
+	}
+	if len(resp.ToolCalls) != 0 {
+		t.Fatalf("expected no tool calls, got %d", len(resp.ToolCalls))
+	}
+	if resp.Usage != nil {
+		t.Fatalf("expected nil usage, got %#v", resp.Usage)
 	}
 }
 
