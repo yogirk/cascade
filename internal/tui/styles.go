@@ -29,7 +29,7 @@ func init() {
 //
 //   - "light" / "dark" — force lightness, keep current theme (back-compat)
 //   - "auto" / ""      — use auto-detected lightness, keep current theme
-//   - any registered theme name (e.g. "verse-in-code") — switch theme,
+//   - any registered theme name (e.g. "verse") — switch theme,
 //     keep auto-detected lightness
 //
 // Unknown values are ignored (no change). Must be called before any
@@ -222,8 +222,8 @@ func initPalette() {
 	sweepMid = p.SweepMid
 	sweepBright = p.SweepBright
 
-	// Cascade tilde: pulsing palette (ocean blue in Midnight Hydrology,
-	// warm chestnut in Verse in Code).
+	// Cascade tilde: pulsing palette (ocean blue in Midnight,
+	// warm chestnut in Verse).
 	cascadeDim = p.CascadeDim
 	cascadeTrail = p.CascadeTrail
 	cascadeBright = p.CascadeBright

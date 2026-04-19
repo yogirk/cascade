@@ -2,22 +2,22 @@ package themes
 
 import "charm.land/lipgloss/v2"
 
-// VerseInCode is the slokam-aligned aesthetic — warm parchment, chestnut
-// accent, scholarly glyphs. Inherits slokam.ai's brand palette: kraft/cream
-// base, chestnut primary. Terminal-adapted: in dark mode the cream inverts
-// to deep ink while preserving the warm temperature.
+// Verse is the slokam-aligned aesthetic — warm parchment, chestnut accent,
+// scholarly glyphs. Inherits slokam.ai's brand palette: kraft/cream base,
+// chestnut primary. Terminal-adapted: in dark mode the cream inverts to
+// deep ink while preserving the warm temperature.
 //
 // Thesis: a slokam (verse) of data engineering — complete, precise, nothing
-// wasted. The default theme for Cascade.
+// wasted.
 //
 // Contrast notes (WCAG AA 4.5:1 on the theme's base surface):
 //   - Dark surface #1A1612: Success #8CBFA5 ~6.2:1, Warning #E8A03F ~7.8:1,
 //     Danger #C4634F ~4.9:1, Accent #D4A574 ~8.4:1, DimText #8C8375 ~3.9:1.
 //   - Light surface #F5EFE0: Success #3E7A5F ~5.6:1, Warning #A85F18 ~5.1:1,
 //     Danger #9F3A2A ~6.8:1, Accent #8A4F1E ~6.7:1, DimText #867B68 ~4.2:1.
-var VerseInCode = Theme{
-	Name:        "verse-in-code",
-	DisplayName: "Verse in Code",
+var Verse = Theme{
+	Name:        "verse",
+	DisplayName: "Verse",
 	Description: "Warm parchment + chestnut. Scholarly. Aligns with slokam.ai brand.",
 
 	Dark: Palette{

@@ -60,8 +60,8 @@ type Palette struct {
 // The TUI selects between Light and Dark based on terminal background
 // detection; the user selects between themes via config or /theme.
 type Theme struct {
-	Name        string // Stable identifier, kebab-case (e.g. "verse-in-code")
-	DisplayName string // User-facing name (e.g. "Verse in Code")
+	Name        string // Stable identifier, kebab-case (e.g. "verse")
+	DisplayName string // User-facing name (e.g. "Verse")
 	Description string // Short rationale shown in the /theme picker
 	Light       Palette
 	Dark        Palette

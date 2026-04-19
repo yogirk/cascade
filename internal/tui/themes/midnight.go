@@ -2,9 +2,9 @@ package themes
 
 import "charm.land/lipgloss/v2"
 
-// MidnightHydrology is the distinctive cool-water aesthetic — deep basins,
-// channel blues, mineral mist. Dogfoods the "cascade" name via flow motifs
-// and directional motion (cascade sweep on streaming).
+// Midnight is the distinctive cool-water aesthetic — deep basins, channel
+// blues, mineral mist. Dogfoods the "cascade" name via flow motifs and
+// directional motion (cascade sweep on streaming).
 //
 // Thesis: a midnight hydrology control room — calm, cold, precise, with the
 // quiet kinetic energy of water moving through pressure, gates, channels.
@@ -15,9 +15,9 @@ import "charm.land/lipgloss/v2"
 //     Danger #C46A5A ~5.0:1, Accent #6EA8C7 ~5.3:1, DimText #7B8A9B ~3.8:1.
 //   - Light surface #F0F4F8: Success #0E7C6A ~5.8:1, Warning #8A6E2F ~5.4:1,
 //     Danger #9F3A2A ~6.4:1, Accent #1F6B9B ~5.9:1, DimText #6F7A87 ~4.3:1.
-var MidnightHydrology = Theme{
-	Name:        "midnight-hydrology",
-	DisplayName: "Midnight Hydrology",
+var Midnight = Theme{
+	Name:        "midnight",
+	DisplayName: "Midnight",
 	Description: "Cool water mineral tones. Distinctive flow-instrument aesthetic.",
 
 	Dark: Palette{

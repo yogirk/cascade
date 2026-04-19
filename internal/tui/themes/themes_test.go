@@ -20,8 +20,8 @@ func TestGet_KnownTheme(t *testing.T) {
 		name string
 		want string
 	}{
-		{"verse-in-code", "verse-in-code"},
-		{"midnight-hydrology", "midnight-hydrology"},
+		{"verse", "verse"},
+		{"midnight", "midnight"},
 		{"classic", "classic"},
 	}
 	for _, tt := range tests {
@@ -68,7 +68,7 @@ func TestAll_IncludesShippedThemes(t *testing.T) {
 	for _, t := range All() {
 		seen[t.Name] = true
 	}
-	for _, want := range []string{"verse-in-code", "midnight-hydrology", "classic"} {
+	for _, want := range []string{"verse", "midnight", "classic"} {
 		if !seen[want] {
 			t.Errorf("All() missing shipped theme %q", want)
 		}
@@ -89,7 +89,7 @@ func TestNames_MatchesAll(t *testing.T) {
 }
 
 func TestPick_ReturnsCorrectVariant(t *testing.T) {
-	theme, _ := Get("verse-in-code")
+	theme, _ := Get("verse")
 
 	dark := theme.Pick(true)
 	light := theme.Pick(false)

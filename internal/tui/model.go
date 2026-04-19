@@ -989,7 +989,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			lightness = "light"
 		}
 		lines = append(lines, "", fmt.Sprintf("Active: %s (%s)", current.DisplayName, lightness))
-		lines = append(lines, "Switch with: /theme <name>  (e.g. /theme midnight-hydrology)")
+		lines = append(lines, "Switch with: /theme <name>  (e.g. /theme midnight)")
 		m.chat.AddMessage(ChatMessage{Role: "system", Content: strings.Join(lines, "\n")})
 
 	case strings.HasPrefix(cmd, "/theme "):

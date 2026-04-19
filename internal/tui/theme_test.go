@@ -43,17 +43,17 @@ func TestSetTheme_SwitchesNamedTheme(t *testing.T) {
 	origDark := IsDarkBg()
 	t.Cleanup(func() { SetTheme(origTheme) })
 
-	SetTheme("midnight-hydrology")
-	if CurrentTheme().Name != "midnight-hydrology" {
-		t.Errorf("active theme = %q, want midnight-hydrology", CurrentTheme().Name)
+	SetTheme("midnight")
+	if CurrentTheme().Name != "midnight" {
+		t.Errorf("active theme = %q, want midnight", CurrentTheme().Name)
 	}
 	if IsDarkBg() != origDark {
 		t.Errorf("lightness changed unexpectedly: was %v, now %v", origDark, IsDarkBg())
 	}
 
-	SetTheme("verse-in-code")
-	if CurrentTheme().Name != "verse-in-code" {
-		t.Errorf("active theme = %q, want verse-in-code", CurrentTheme().Name)
+	SetTheme("verse")
+	if CurrentTheme().Name != "verse" {
+		t.Errorf("active theme = %q, want verse", CurrentTheme().Name)
 	}
 }
 

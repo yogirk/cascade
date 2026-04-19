@@ -3,14 +3,16 @@ package themes
 import "sort"
 
 // DefaultName is the theme applied when no explicit theme is configured.
-// Aligned with slokam.ai brand.
-const DefaultName = "verse-in-code"
+// Kept as classic while peers evaluate the new theses — switching the
+// default out of main's palette would change how first-run users experience
+// cascade before the new themes have earned that slot.
+const DefaultName = "classic"
 
 // registry holds all registered themes keyed by stable Name.
 var registry = map[string]Theme{
-	VerseInCode.Name:       VerseInCode,
-	MidnightHydrology.Name: MidnightHydrology,
-	Classic.Name:           Classic,
+	Classic.Name:  Classic,
+	Verse.Name:    Verse,
+	Midnight.Name: Midnight,
 }
 
 // Default returns the default theme. Never returns the zero Theme — if the
