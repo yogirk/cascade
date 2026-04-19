@@ -17,6 +17,7 @@ import (
 	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/provider"
 	logtool "github.com/yogirk/cascade/internal/tools/logging"
+	"github.com/yogirk/cascade/internal/tui/themes"
 	"github.com/yogirk/cascade/pkg/types"
 )
 
@@ -880,6 +881,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /copy           Copy last response",
 			"  /copy-code      Copy last code block",
 			"  /model          Pick model (interactive)",
+			"  /theme          List or switch color themes",
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
 			"  /morning        Platform health briefing",
@@ -967,6 +969,45 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		m.chat.AddMessage(ChatMessage{
 			Role:    "system",
 			Content: "Switched to " + friendlyModelName(newModel) + " (" + newModel + ")",
+		})
+
+	case cmd == "/theme":
+		all := themes.All()
+		current := CurrentTheme()
+		lines := []string{"Available themes:"}
+		for _, t := range all {
+			marker := "  "
+			if t.Name == current.Name {
+				marker = "▸ "
+			}
+			lines = append(lines, fmt.Sprintf("%s%s  %s", marker, t.Name, t.Description))
+		}
+		lightness := "dark"
+		if !IsDarkBg() {
+			lightness = "light"
+		}
+		lines = append(lines, "", fmt.Sprintf("Active: %s (%s)", current.DisplayName, lightness))
+		lines = append(lines, "Switch with: /theme <name>  (e.g. /theme midnight-hydrology)")
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: strings.Join(lines, "\n")})
+
+	case strings.HasPrefix(cmd, "/theme "):
+		name := strings.TrimSpace(strings.TrimPrefix(cmd, "/theme "))
+		if name == "" {
+			return nil
+		}
+		if _, ok := themes.Get(name); !ok {
+			known := strings.Join(themes.Names(), ", ")
+			m.chat.AddMessage(ChatMessage{
+				Role:    "error",
+				Content: fmt.Sprintf("Unknown theme %q. Available: %s", name, known),
+			})
+			return nil
+		}
+		SetTheme(name)
+		m.chat.ForceRebuild()
+		m.chat.AddMessage(ChatMessage{
+			Role:    "system",
+			Content: "Switched to " + CurrentTheme().DisplayName,
 		})
 
 	case cmd == "/compact":

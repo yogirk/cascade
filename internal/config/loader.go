@@ -99,4 +99,7 @@ func applyFlags(cfg *Config, flags map[string]string) {
 	if v, ok := flags["project"]; ok && v != "" {
 		cfg.GCP.Project = v
 	}
+	if v, ok := flags["theme"]; ok && v != "" {
+		cfg.Display.Theme = v
+	}
 }

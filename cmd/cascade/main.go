@@ -48,6 +48,7 @@ func main() {
 	rootCmd.Flags().String("provider", "", "Backend: \"gemini\" (API key) or \"vertex\" (GCP)")
 	rootCmd.Flags().String("project", "", "GCP Project ID for Vertex AI")
 	rootCmd.Flags().String("config", "", "Path to config file")
+	rootCmd.Flags().String("theme", "", "Color theme: \"verse-in-code\", \"midnight-hydrology\", \"light\", \"dark\", or \"auto\"")
 	rootCmd.Flags().Bool("bypass", false, "Enable full-access mode (legacy flag name)")
 	rootCmd.Flags().Bool("resume", false, "Resume the most recent session")
 	rootCmd.Flags().String("session", "", "Resume a specific session by ID")
@@ -85,6 +86,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if p, _ := cmd.Flags().GetString("project"); p != "" {
 		flags["project"] = p
+	}
+	if t, _ := cmd.Flags().GetString("theme"); t != "" {
+		flags["theme"] = t
 	}
 	configPath, _ := cmd.Flags().GetString("config")
 	bypass, _ := cmd.Flags().GetBool("bypass")

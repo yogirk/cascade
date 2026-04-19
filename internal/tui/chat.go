@@ -304,6 +304,14 @@ func (c *ChatModel) MessageCount() int {
 	return len(c.messages)
 }
 
+// ForceRebuild re-renders the full transcript from scratch. Call this after
+// any change that affects how messages render but doesn't change their
+// content — e.g. theme switch via /theme, where every message must pick up
+// the new palette's styles.
+func (c *ChatModel) ForceRebuild() {
+	c.rebuildCache()
+}
+
 // rebuildCache re-renders all messages from scratch. Called only when
 // the viewport width changes (messages may wrap differently).
 func (c *ChatModel) rebuildCache() {
