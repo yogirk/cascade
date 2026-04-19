@@ -622,7 +622,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		if summary := m.spinner.TurnSummary(); summary != "" {
 			m.chat.AddMessage(ChatMessage{
 				Role:    "system",
-				Display: "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Render(summary),
+				Display: "  " + lipgloss.NewStyle().Foreground(dimTextColor).Render(summary),
 				Content: summary,
 			})
 		}
@@ -768,15 +768,17 @@ func formatDurationSimple(ms int64) string {
 }
 
 // renderCostBreakdown renders a styled session cost report.
+// Styles are built per-call from the live palette so /cost output follows
+// the active theme — not baked at package init.
 func renderCostBreakdown(entries []CostEntry, total, dailyBudget float64) (display string, content string) {
-	costHeaderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
-	costTitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	costDimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	costLabelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	costValueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	costAccentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8"))
-	costSepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	costWarnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#D97706"))
+	costHeaderStyle := lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	costTitleStyle := lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+	costDimStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	costLabelStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	costValueStyle := lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+	costAccentStyle := lipgloss.NewStyle().Foreground(toolColor)
+	costSepStyle := lipgloss.NewStyle().Foreground(inputBorderDimColor)
+	costWarnStyle := lipgloss.NewStyle().Foreground(warningColor)
 
 	var db, cb strings.Builder
 

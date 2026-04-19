@@ -183,6 +183,11 @@ var (
 // deliberately just field-to-var wiring — do not reintroduce hex literals
 // here without a very good reason.
 func initPalette() {
+	// Record the active theme in the themes package so non-tui renderers
+	// (internal/app, internal/tools/*) can read the same palette without
+	// importing the tui package.
+	themes.SetActive(currentTheme, isDarkBg)
+
 	p := currentTheme.Pick(isDarkBg)
 
 	// ── Core colors ──

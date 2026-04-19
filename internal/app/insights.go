@@ -10,20 +10,41 @@ import (
 
 	bq "github.com/yogirk/cascade/internal/bigquery"
 	bqtools "github.com/yogirk/cascade/internal/tools/bigquery"
+	"github.com/yogirk/cascade/internal/tui/themes"
 )
 
 // Styles for insights report rendering.
-var (
-	insightHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
-	insightTitleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	insightDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	insightTextStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB"))
-	insightLabelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	insightValueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	insightAccentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8"))
-	insightSepStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	insightWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D97706"))
-)
+//
+// Built per-call from the live palette so /insights follows the active
+// theme. Do not hoist these back into package-level `var` — they would
+// freeze on whatever theme was active at package-init time.
+func insightHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Accent).Bold(true)
+}
+func insightTitleStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Bright).Bold(true)
+}
+func insightDimStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().DimText)
+}
+func insightTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Text)
+}
+func insightLabelStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().DimText)
+}
+func insightValueStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Bright).Bold(true)
+}
+func insightAccentStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Tool)
+}
+func insightSepStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().InputBorderDim)
+}
+func insightWarnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Warning)
+}
 
 // InsightsReport holds the results of cost analysis queries.
 type InsightsReport struct {
@@ -274,7 +295,7 @@ func sectionSep(width int) string {
 	if width <= 0 {
 		width = 60
 	}
-	return "  " + insightSepStyle.Render(strings.Repeat("─", width))
+	return "  " + insightSepStyle().Render(strings.Repeat("─", width))
 }
 
 // RenderInsightsReport formats the insights report as a styled string for the TUI.
@@ -283,18 +304,18 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 
 	// Title
 	db.WriteString("\n")
-	db.WriteString("  " + insightAccentStyle.Render("≋") + " " +
-		insightTitleStyle.Render("BigQuery Cost Insights") + "  " +
-		insightDimStyle.Render(report.ProjectID+" · "+report.Location) + "\n")
+	db.WriteString("  " + insightAccentStyle().Render("≋") + " " +
+		insightTitleStyle().Render("BigQuery Cost Insights") + "  " +
+		insightDimStyle().Render(report.ProjectID+" · "+report.Location) + "\n")
 	db.WriteString(sectionSep(60) + "\n\n")
 	cb.WriteString(fmt.Sprintf("BigQuery Cost Insights — %s (%s)\n\n", report.ProjectID, report.Location))
 
 	// Section 1: Query Costs
-	db.WriteString("  " + insightHeaderStyle.Render("Query Costs") + "  " +
-		insightDimStyle.Render("last 7 days") + "\n\n")
+	db.WriteString("  " + insightHeaderStyle().Render("Query Costs") + "  " +
+		insightDimStyle().Render("last 7 days") + "\n\n")
 	cb.WriteString("Query Costs (last 7 days)\n")
 	if report.QueryCostErr != nil {
-		db.WriteString("  " + insightWarnStyle.Render("⚠ "+report.QueryCostErr.Error()) + "\n")
+		db.WriteString("  " + insightWarnStyle().Render("⚠ "+report.QueryCostErr.Error()) + "\n")
 		cb.WriteString("  unavailable: " + report.QueryCostErr.Error() + "\n")
 	} else if len(report.DailyCosts) > 0 {
 		spark := bqtools.RenderSparkline(report.DailyCosts)
@@ -311,23 +332,23 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 		avg = total / float64(len(report.DailyCosts))
 
 		db.WriteString("  " +
-			insightLabelStyle.Render("Total ") + insightValueStyle.Render(bqtools.FormatDollars(total)) + "    " +
-			insightLabelStyle.Render("Avg ") + insightTextStyle.Render(bqtools.FormatDollars(avg)+"/day") + "    " +
-			insightLabelStyle.Render("Peak ") + insightTextStyle.Render(bqtools.FormatDollars(peak)) + "\n")
+			insightLabelStyle().Render("Total ") + insightValueStyle().Render(bqtools.FormatDollars(total)) + "    " +
+			insightLabelStyle().Render("Avg ") + insightTextStyle().Render(bqtools.FormatDollars(avg)+"/day") + "    " +
+			insightLabelStyle().Render("Peak ") + insightTextStyle().Render(bqtools.FormatDollars(peak)) + "\n")
 		cb.WriteString(fmt.Sprintf("  Total: %s  Avg: %s/day  Peak: %s\n",
 			bqtools.FormatDollars(total), bqtools.FormatDollars(avg), bqtools.FormatDollars(peak)))
 	} else {
-		db.WriteString("  " + insightDimStyle.Render("No query costs in the last 7 days") + "\n")
+		db.WriteString("  " + insightDimStyle().Render("No query costs in the last 7 days") + "\n")
 		cb.WriteString("  No query costs in the last 7 days\n")
 	}
 
 	// Section 2: Top Queries
 	db.WriteString("\n" + sectionSep(60) + "\n\n")
-	db.WriteString("  " + insightHeaderStyle.Render("Top Queries") + "  " +
-		insightDimStyle.Render("today by cost") + "\n\n")
+	db.WriteString("  " + insightHeaderStyle().Render("Top Queries") + "  " +
+		insightDimStyle().Render("today by cost") + "\n\n")
 	cb.WriteString("\nTop Expensive Queries (today)\n")
 	if report.TopQueryErr != nil {
-		db.WriteString("  " + insightWarnStyle.Render("⚠ "+report.TopQueryErr.Error()) + "\n")
+		db.WriteString("  " + insightWarnStyle().Render("⚠ "+report.TopQueryErr.Error()) + "\n")
 		cb.WriteString("  unavailable: " + report.TopQueryErr.Error() + "\n")
 	} else if len(report.TopQueries) > 0 {
 		for i, q := range report.TopQueries {
@@ -336,15 +357,15 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 			if len(user) > 25 {
 				user = user[:22] + "..."
 			}
-			db.WriteString("  " + insightTextStyle.Render(user) + "  " +
-				insightValueStyle.Render(bqtools.FormatDollars(q.CostUSD)) + "\n")
+			db.WriteString("  " + insightTextStyle().Render(user) + "  " +
+				insightValueStyle().Render(bqtools.FormatDollars(q.CostUSD)) + "\n")
 
 			// SQL preview dimmed below
 			preview := strings.ReplaceAll(q.SQLPreview, "\n", " ")
 			if len(preview) > 55 {
 				preview = preview[:52] + "..."
 			}
-			db.WriteString("  " + insightDimStyle.Render(preview) + "\n")
+			db.WriteString("  " + insightDimStyle().Render(preview) + "\n")
 
 			if i < len(report.TopQueries)-1 {
 				db.WriteString("\n")
@@ -353,41 +374,41 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 			cb.WriteString(fmt.Sprintf("  %s  %s  %s\n", q.UserEmail, bqtools.FormatDollars(q.CostUSD), q.SQLPreview))
 		}
 	} else {
-		db.WriteString("  " + insightDimStyle.Render("No queries today") + "\n")
+		db.WriteString("  " + insightDimStyle().Render("No queries today") + "\n")
 		cb.WriteString("  No queries today\n")
 	}
 
 	// Section 3: Storage
 	db.WriteString("\n" + sectionSep(60) + "\n\n")
-	db.WriteString("  " + insightHeaderStyle.Render("Storage") + "  " +
-		insightDimStyle.Render("monthly estimate") + "\n\n")
+	db.WriteString("  " + insightHeaderStyle().Render("Storage") + "  " +
+		insightDimStyle().Render("monthly estimate") + "\n\n")
 	cb.WriteString("\nStorage Summary\n")
 	if report.StorageErr != nil {
-		db.WriteString("  " + insightWarnStyle.Render("⚠ "+report.StorageErr.Error()) + "\n")
+		db.WriteString("  " + insightWarnStyle().Render("⚠ "+report.StorageErr.Error()) + "\n")
 		cb.WriteString("  unavailable: " + report.StorageErr.Error() + "\n")
 	} else if report.StorageSummary != nil {
 		s := report.StorageSummary
 
 		// Storage breakdown
 		db.WriteString("  " +
-			insightLabelStyle.Render("Active      ") +
-			insightValueStyle.Render(bqtools.FormatGB(s.ActiveBytes)) + "  " +
-			insightDimStyle.Render(bqtools.FormatDollars(s.ActiveCost)+"/mo") + "\n")
+			insightLabelStyle().Render("Active      ") +
+			insightValueStyle().Render(bqtools.FormatGB(s.ActiveBytes)) + "  " +
+			insightDimStyle().Render(bqtools.FormatDollars(s.ActiveCost)+"/mo") + "\n")
 		db.WriteString("  " +
-			insightLabelStyle.Render("Long-term   ") +
-			insightValueStyle.Render(bqtools.FormatGB(s.LongTermBytes)) + "  " +
-			insightDimStyle.Render(bqtools.FormatDollars(s.LongTermCost)+"/mo") + "\n")
+			insightLabelStyle().Render("Long-term   ") +
+			insightValueStyle().Render(bqtools.FormatGB(s.LongTermBytes)) + "  " +
+			insightDimStyle().Render(bqtools.FormatDollars(s.LongTermCost)+"/mo") + "\n")
 		db.WriteString("  " +
-			insightLabelStyle.Render("Total       ") +
-			insightTitleStyle.Render(bqtools.FormatGB(s.TotalBytes)) + "  " +
-			insightAccentStyle.Render(bqtools.FormatDollars(s.TotalCost)+"/mo") + "\n")
+			insightLabelStyle().Render("Total       ") +
+			insightTitleStyle().Render(bqtools.FormatGB(s.TotalBytes)) + "  " +
+			insightAccentStyle().Render(bqtools.FormatDollars(s.TotalCost)+"/mo") + "\n")
 
 		cb.WriteString(fmt.Sprintf("  Active: %s (%s/mo)\n", bqtools.FormatGB(s.ActiveBytes), bqtools.FormatDollars(s.ActiveCost)))
 		cb.WriteString(fmt.Sprintf("  Long-term: %s (%s/mo)\n", bqtools.FormatGB(s.LongTermBytes), bqtools.FormatDollars(s.LongTermCost)))
 		cb.WriteString(fmt.Sprintf("  Total: %s (%s/mo)\n", bqtools.FormatGB(s.TotalBytes), bqtools.FormatDollars(s.TotalCost)))
 
 		if len(s.TopTables) > 0 {
-			db.WriteString("\n  " + insightLabelStyle.Render("Largest tables") + "\n\n")
+			db.WriteString("\n  " + insightLabelStyle().Render("Largest tables") + "\n\n")
 			db.WriteString(bqtools.RenderBarChart(s.TopTables, 25) + "\n")
 			cb.WriteString("  Largest tables:\n")
 			for _, t := range s.TopTables {
@@ -399,8 +420,8 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 	// Section 4: Slot Utilization (optional)
 	if report.SlotErr == nil && len(report.SlotUtilization) > 0 {
 		db.WriteString("\n" + sectionSep(60) + "\n\n")
-		db.WriteString("  " + insightHeaderStyle.Render("Slot Utilization") + "  " +
-			insightDimStyle.Render("last 7 days") + "\n\n")
+		db.WriteString("  " + insightHeaderStyle().Render("Slot Utilization") + "  " +
+			insightDimStyle().Render("last 7 days") + "\n\n")
 		db.WriteString("  " + bqtools.RenderSparkline(report.SlotUtilization) + "\n\n")
 
 		var total, peak float64
@@ -412,8 +433,8 @@ func RenderInsightsReport(report *InsightsReport) (display string, content strin
 		}
 		avg := total / float64(len(report.SlotUtilization))
 		db.WriteString("  " +
-			insightLabelStyle.Render("Avg ") + insightTextStyle.Render(fmt.Sprintf("%.0f slots", avg)) + "    " +
-			insightLabelStyle.Render("Peak ") + insightTextStyle.Render(fmt.Sprintf("%.0f slots", peak)) + "\n")
+			insightLabelStyle().Render("Avg ") + insightTextStyle().Render(fmt.Sprintf("%.0f slots", avg)) + "    " +
+			insightLabelStyle().Render("Peak ") + insightTextStyle().Render(fmt.Sprintf("%.0f slots", peak)) + "\n")
 
 		cb.WriteString("\nSlot Utilization (last 7 days)\n")
 		for i, v := range report.SlotUtilization {

@@ -7,33 +7,30 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-)
 
-// Chart color palette — ocean blue, matching Cascade branding.
-var (
-	chartDim    color.Color = lipgloss.Color("#1E3A5F")
-	chartLow    color.Color = lipgloss.Color("#0369A1")
-	chartMid    color.Color = lipgloss.Color("#0EA5E9")
-	chartBright color.Color = lipgloss.Color("#38BDF8")
-	chartPeak   color.Color = lipgloss.Color("#7DD3FC")
+	"github.com/yogirk/cascade/internal/tui/themes"
 )
 
 // sparkBlocks are the Unicode block characters for sparkline rendering (8 levels).
 var sparkBlocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-// chartPalette maps a normalized value [0,1] to a color from the ocean blue palette.
+// chartPalette maps a normalized value [0,1] to a color from the active
+// theme's spinner/cascade ramp. Re-reads on every call so theme switches
+// take effect immediately.
 func chartColor(normalized float64) color.Color {
+	p := themes.ActivePalette()
 	switch {
 	case normalized < 0.2:
-		return chartDim
+		return p.CascadeDim
 	case normalized < 0.4:
-		return chartLow
+		return p.CascadeTrail
 	case normalized < 0.6:
-		return chartMid
+		// No distinct "mid" step in the palette — blend trail/bright territory.
+		return p.CascadeTrail
 	case normalized < 0.8:
-		return chartBright
+		return p.CascadeBright
 	default:
-		return chartPeak
+		return p.CascadePeak
 	}
 }
 
@@ -59,7 +56,7 @@ func RenderSparkline(data []float64) string {
 	if spread == 0 {
 		// All values equal — render mid-height bars
 		mid := string(sparkBlocks[3])
-		style := lipgloss.NewStyle().Foreground(chartMid)
+		style := lipgloss.NewStyle().Foreground(themes.ActivePalette().CascadeBright)
 		return style.Render(strings.Repeat(mid, len(data)))
 	}
 
@@ -80,7 +77,7 @@ func RenderSparkline(data []float64) string {
 // Format: ▂▃▅▇█▆▃  $42.17 total  |  avg $6.02/day  |  peak $12.30
 func SparklineWithAnnotation(data []float64, label string, formatValue func(float64) string) string {
 	if len(data) == 0 {
-		return dimStyle.Render("No data")
+		return dimStyle().Render("No data")
 	}
 
 	spark := RenderSparkline(data)
@@ -97,7 +94,7 @@ func SparklineWithAnnotation(data []float64, label string, formatValue func(floa
 	annotation := fmt.Sprintf("%s total  |  avg %s/day  |  peak %s",
 		formatValue(total), formatValue(avg), formatValue(peak))
 
-	return spark + "  " + dimStyle.Render(annotation)
+	return spark + "  " + dimStyle().Render(annotation)
 }
 
 // BarChartItem represents a single row in a horizontal bar chart.
@@ -111,7 +108,7 @@ type BarChartItem struct {
 // maxBarWidth controls the maximum width of the bar portion (in characters).
 func RenderBarChart(items []BarChartItem, maxBarWidth int) string {
 	if len(items) == 0 {
-		return dimStyle.Render("No data")
+		return dimStyle().Render("No data")
 	}
 
 	if maxBarWidth <= 0 {
@@ -172,7 +169,7 @@ func RenderBarChart(items []BarChartItem, maxBarWidth int) string {
 		sb.WriteString(fmt.Sprintf("  %-*s  %s%s  %s",
 			maxLabelW, label,
 			bar, padding,
-			dimStyle.Render(item.FormattedValue)))
+			dimStyle().Render(item.FormattedValue)))
 
 		if i < len(items)-1 {
 			sb.WriteString("\n")
