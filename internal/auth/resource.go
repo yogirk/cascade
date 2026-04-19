@@ -121,7 +121,11 @@ func serviceAccountTokenSource(ctx context.Context, credentialsFile string) (oau
 	if err != nil {
 		return nil, fmt.Errorf("reading credentials file %s: %w", credentialsFile, err)
 	}
-	creds, err := google.CredentialsFromJSON(ctx, data, defaultScopes...)
+	// Pin the expected credential type so a JSON file claiming to be e.g.
+	// external_account or impersonated_service_account is rejected instead of
+	// being loaded with its broader surface area. We only accept service account
+	// keys on this path.
+	creds, err := google.CredentialsFromJSONWithType(ctx, data, google.ServiceAccount, defaultScopes...)
 	if err != nil {
 		return nil, fmt.Errorf("parsing credentials file %s: %w", credentialsFile, err)
 	}
