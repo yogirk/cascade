@@ -1004,6 +1004,10 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			return nil
 		}
 		SetTheme(name)
+		// Welcome messages in chat store pre-rendered ANSI with the old
+		// palette baked in — replace their content with a fresh render
+		// before rebuilding so the banner updates too.
+		m.chat.RefreshWelcomeSnapshot(m.welcome.View())
 		m.chat.ForceRebuild()
 		m.chat.AddMessage(ChatMessage{
 			Role:    "system",
