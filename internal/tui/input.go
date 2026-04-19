@@ -40,6 +40,26 @@ func NewInputModel() InputModel {
 	ti.CharLimit = 0
 	ti.EndOfBufferCharacter = ' '
 
+	applyTextareaStyles(&ti)
+	ti.SetHeight(1)
+	ti.Focus()
+
+	m := InputModel{
+		input:   ti,
+		focused: true,
+		width:   80,
+		histIdx: -1,
+	}
+	m.syncInputSize()
+	return m
+}
+
+// applyTextareaStyles wires every inner textarea style (base, prompt, text,
+// placeholder, cursor line, end-of-buffer, both focused and blurred) to the
+// current palette colors. Called from NewInputModel at construction and from
+// RefreshStyles after a theme switch — the textarea captures style values at
+// SetStyles() time, so module-level color reassignment alone is not enough.
+func applyTextareaStyles(ti *textarea.Model) {
 	styles := ti.Styles()
 	styles.Focused.Base = lipgloss.NewStyle().Background(inputBgColor)
 	styles.Blurred.Base = lipgloss.NewStyle().Background(inputBgColor)
@@ -63,18 +83,14 @@ func NewInputModel() InputModel {
 	styles.Blurred.EndOfBuffer = lipgloss.NewStyle().Background(inputBgColor)
 	styles.Cursor.Blink = false
 	ti.SetStyles(styles)
-	ti.SetHeight(1)
+}
 
-	ti.Focus()
-
-	m := InputModel{
-		input:   ti,
-		focused: true,
-		width:   80,
-		histIdx: -1,
-	}
-	m.syncInputSize()
-	return m
+// RefreshStyles re-applies every textarea style from the current palette.
+// Call after a theme change so the placeholder background, end-of-buffer
+// fill, and cursor line match the new theme instead of staying stuck with
+// colors captured at construction time.
+func (i *InputModel) RefreshStyles() {
+	applyTextareaStyles(&i.input)
 }
 
 // shiftEnterKey matches shift+enter for multiline insert.

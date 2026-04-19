@@ -108,7 +108,7 @@ func (c ConfirmModel) View() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(brightConfirmLabel.Render("Choose an action:"))
+	sb.WriteString(brightConfirmLabel().Render("Choose an action:"))
 	sb.WriteString("\n")
 	labelWidth := 0
 	for idx, option := range confirmOptions {
@@ -122,9 +122,9 @@ func (c ConfirmModel) View() string {
 		paddedLabel := fmt.Sprintf("%-*s", labelWidth, label)
 		desc := StatusDimStyle.Render(option.description)
 		if c.cursor == idx {
-			sb.WriteString(confirmActiveStyle.Render("▸"))
+			sb.WriteString(confirmActiveStyle().Render("▸"))
 			sb.WriteString(" ")
-			sb.WriteString(confirmActiveStyle.Render(paddedLabel))
+			sb.WriteString(confirmActiveStyle().Render(paddedLabel))
 		} else {
 			sb.WriteString("  ")
 			sb.WriteString(StatusDimStyle.Render(paddedLabel))
@@ -285,5 +285,14 @@ func abbreviateArgs(input json.RawMessage) string {
 }
 
 // confirmActiveStyle styles the active option in the confirm prompt.
-var confirmActiveStyle = lipgloss.NewStyle().Foreground(brightColor).Bold(true)
-var brightConfirmLabel = lipgloss.NewStyle().Foreground(textColor).Bold(true)
+// Built per-call so theme switches take effect. Previously these were
+// package-level `var` declarations — their right-hand sides ran at package
+// init time before initPalette() populated brightColor/textColor, leaving
+// both styles with nil foreground (rendered as terminal default).
+func confirmActiveStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+}
+
+func brightConfirmLabel() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(textColor).Bold(true)
+}

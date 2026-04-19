@@ -100,6 +100,16 @@ type AgentConfig struct {
 
 // DisplayConfig configures the TUI display.
 type DisplayConfig struct {
+	// Theme selects the active color palette.
+	//
+	// Accepted values:
+	//   - ""/"auto"       — auto-detect terminal lightness, use default theme (classic)
+	//   - "light"/"dark"  — force lightness, keep default theme (back-compat)
+	//   - "classic"       — default. Blue accent, cyan queries, indigo data (original cascade palette)
+	//   - "verse"         — warm parchment + chestnut (slokam-aligned, scholarly)
+	//   - "midnight"      — cool water mineral tones (distinctive flow-instrument)
+	//
+	// Unknown values are ignored (falls back to default).
 	Theme string `toml:"theme"` // default: "auto"
 }
 

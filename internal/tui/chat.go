@@ -304,6 +304,33 @@ func (c *ChatModel) MessageCount() int {
 	return len(c.messages)
 }
 
+// ForceRebuild re-renders the full transcript from scratch. Call this after
+// any change that affects how messages render but doesn't change their
+// content — e.g. theme switch via /theme, where every message must pick up
+// the new palette's styles.
+func (c *ChatModel) ForceRebuild() {
+	c.rebuildCache()
+}
+
+// RefreshWelcomeSnapshot replaces the Content of every welcome-role message
+// with newContent, then rebuilds the cache. Welcome messages store a
+// pre-rendered ANSI string (welcome banners aren't re-styled at render time,
+// they're snapshotted on first submit for scrollback). After a theme switch
+// those snapshots are baked with the previous palette, so `/theme` must
+// call this to replace them with a fresh render.
+func (c *ChatModel) RefreshWelcomeSnapshot(newContent string) {
+	changed := false
+	for i := range c.messages {
+		if c.messages[i].Role == "welcome" {
+			c.messages[i].Content = newContent
+			changed = true
+		}
+	}
+	if changed {
+		c.rebuildCache()
+	}
+}
+
 // rebuildCache re-renders all messages from scratch. Called only when
 // the viewport width changes (messages may wrap differently).
 func (c *ChatModel) rebuildCache() {

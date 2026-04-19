@@ -17,6 +17,7 @@ import (
 	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/provider"
 	logtool "github.com/yogirk/cascade/internal/tools/logging"
+	"github.com/yogirk/cascade/internal/tui/themes"
 	"github.com/yogirk/cascade/pkg/types"
 )
 
@@ -621,7 +622,7 @@ func (m Model) handleAgentEvent(event types.Event) (tea.Model, tea.Cmd) {
 		if summary := m.spinner.TurnSummary(); summary != "" {
 			m.chat.AddMessage(ChatMessage{
 				Role:    "system",
-				Display: "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Render(summary),
+				Display: "  " + lipgloss.NewStyle().Foreground(dimTextColor).Render(summary),
 				Content: summary,
 			})
 		}
@@ -767,15 +768,17 @@ func formatDurationSimple(ms int64) string {
 }
 
 // renderCostBreakdown renders a styled session cost report.
+// Styles are built per-call from the live palette so /cost output follows
+// the active theme — not baked at package init.
 func renderCostBreakdown(entries []CostEntry, total, dailyBudget float64) (display string, content string) {
-	costHeaderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
-	costTitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	costDimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	costLabelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	costValueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F4F6")).Bold(true)
-	costAccentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#38BDF8"))
-	costSepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	costWarnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#D97706"))
+	costHeaderStyle := lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	costTitleStyle := lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+	costDimStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	costLabelStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	costValueStyle := lipgloss.NewStyle().Foreground(brightColor).Bold(true)
+	costAccentStyle := lipgloss.NewStyle().Foreground(toolColor)
+	costSepStyle := lipgloss.NewStyle().Foreground(inputBorderDimColor)
+	costWarnStyle := lipgloss.NewStyle().Foreground(warningColor)
 
 	var db, cb strings.Builder
 
@@ -880,6 +883,7 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  /copy           Copy last response",
 			"  /copy-code      Copy last code block",
 			"  /model          Pick model (interactive)",
+			"  /theme          List or switch color themes",
 			"  /compact        Compact conversation context",
 			"  /cost           Show session cost breakdown",
 			"  /morning        Platform health briefing",
@@ -967,6 +971,54 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		m.chat.AddMessage(ChatMessage{
 			Role:    "system",
 			Content: "Switched to " + friendlyModelName(newModel) + " (" + newModel + ")",
+		})
+
+	case cmd == "/theme":
+		all := themes.All()
+		current := CurrentTheme()
+		lines := []string{"Available themes:"}
+		for _, t := range all {
+			marker := "  "
+			if t.Name == current.Name {
+				marker = "▸ "
+			}
+			lines = append(lines, fmt.Sprintf("%s%s  %s", marker, t.Name, t.Description))
+		}
+		lightness := "dark"
+		if !IsDarkBg() {
+			lightness = "light"
+		}
+		lines = append(lines, "", fmt.Sprintf("Active: %s (%s)", current.DisplayName, lightness))
+		lines = append(lines, "Switch with: /theme <name>  (e.g. /theme midnight)")
+		m.chat.AddMessage(ChatMessage{Role: "system", Content: strings.Join(lines, "\n")})
+
+	case strings.HasPrefix(cmd, "/theme "):
+		name := strings.TrimSpace(strings.TrimPrefix(cmd, "/theme "))
+		if name == "" {
+			return nil
+		}
+		if _, ok := themes.Get(name); !ok {
+			known := strings.Join(themes.Names(), ", ")
+			m.chat.AddMessage(ChatMessage{
+				Role:    "error",
+				Content: fmt.Sprintf("Unknown theme %q. Available: %s", name, known),
+			})
+			return nil
+		}
+		SetTheme(name)
+		// Welcome messages in chat store pre-rendered ANSI with the old
+		// palette baked in — replace their content with a fresh render
+		// before rebuilding so the banner updates too.
+		m.chat.RefreshWelcomeSnapshot(m.welcome.View())
+		// Input textarea captures inner styles at construction (base,
+		// placeholder, cursor line, end-of-buffer). Without refresh the
+		// end-of-buffer region keeps the old theme's background — reads
+		// as a trailing black/wrong-colored strip after the placeholder.
+		m.input.RefreshStyles()
+		m.chat.ForceRebuild()
+		m.chat.AddMessage(ChatMessage{
+			Role:    "system",
+			Content: "Switched to " + CurrentTheme().DisplayName,
 		})
 
 	case cmd == "/compact":

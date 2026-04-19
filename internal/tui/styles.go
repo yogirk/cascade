@@ -8,36 +8,61 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/yogirk/cascade/internal/permission"
+	"github.com/yogirk/cascade/internal/tui/themes"
 )
 
 // isDarkBg indicates whether the terminal has a dark background.
-// Set by auto-detection at init; overridable via SetTheme().
+// Set by auto-detection at init; overridable via SetTheme("light"|"dark").
 var isDarkBg bool
 
-// ld chooses between light and dark color variants based on terminal background.
-// Detection happens once at init; defaults to dark if detection fails.
-var ld func(light, dark color.Color) color.Color
+// currentTheme is the active named theme. Changes via SetTheme(<theme-name>)
+// or the /theme slash command. Defaults to the registry's default theme.
+var currentTheme themes.Theme = themes.Default()
 
 func init() {
 	isDarkBg = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	ld = lipgloss.LightDark(isDarkBg)
 	initPalette()
 }
 
-// SetTheme overrides the auto-detected theme. Valid values: "light", "dark".
-// "auto" (or any other value) keeps the detected value and is a no-op.
-// Must be called before any rendering (typically from app startup).
+// SetTheme updates the active theme and/or lightness and re-applies the
+// palette. Accepted values:
+//
+//   - "light" / "dark" — force lightness, keep current theme (back-compat)
+//   - "auto" / ""      — use auto-detected lightness, keep current theme
+//   - any registered theme name (e.g. "verse") — switch theme,
+//     keep auto-detected lightness
+//
+// Unknown values are ignored (no change). Must be called before any
+// rendering (typically from app startup) — calls initPalette() which
+// rebuilds all module-level styles.
 func SetTheme(theme string) {
 	switch theme {
 	case "light":
 		isDarkBg = false
 	case "dark":
 		isDarkBg = true
+	case "auto", "":
+		// Keep auto-detected lightness value.
 	default:
-		return // "auto" — keep detected value
+		if t, ok := themes.Get(theme); ok {
+			currentTheme = t
+		} else {
+			return // Unknown — skip re-init.
+		}
 	}
-	ld = lipgloss.LightDark(isDarkBg)
 	initPalette()
+}
+
+// CurrentTheme returns the currently active theme. Used by the TUI /theme
+// picker to highlight the selected entry.
+func CurrentTheme() themes.Theme {
+	return currentTheme
+}
+
+// IsDarkBg reports whether the rendered variant is the dark palette.
+// Used by the TUI /theme picker to show which lightness is in effect.
+func IsDarkBg() bool {
+	return isDarkBg
 }
 
 // Color palette — adaptive for light and dark terminals.
@@ -151,48 +176,58 @@ var (
 	modeFullAccessBadge string
 )
 
-// initPalette initializes all adaptive colors, styles, and badges
-// from the current ld() function. Called at init and after SetTheme().
+// initPalette initializes all adaptive colors, styles, and badges from
+// currentTheme + isDarkBg. Called at init and after SetTheme().
+//
+// All hex values live in internal/tui/themes/<theme>.go. This function is
+// deliberately just field-to-var wiring — do not reintroduce hex literals
+// here without a very good reason.
 func initPalette() {
+	// Record the active theme in the themes package so non-tui renderers
+	// (internal/app, internal/tools/*) can read the same palette without
+	// importing the tui package.
+	themes.SetActive(currentTheme, isDarkBg)
+
+	p := currentTheme.Pick(isDarkBg)
+
 	// ── Core colors ──
-	accentColor = ld(lipgloss.Color("#2563EB"), lipgloss.Color("#6B9FFF"))   // Blue
-	dimTextColor = ld(lipgloss.Color("#6B7280"), lipgloss.Color("#64748B"))   // Gray (dark raised for readability ~3.7:1)
-	textColor = ld(lipgloss.Color("#374151"), lipgloss.Color("#D1D5DB"))      // Body text
-	brightColor = ld(lipgloss.Color("#111827"), lipgloss.Color("#F3F4F6"))    // Headings
-	successColor = ld(lipgloss.Color("#047857"), lipgloss.Color("#34D399"))   // Green (light darkened for WCAG AA ~5.0:1)
-	warningColor = ld(lipgloss.Color("#92400E"), lipgloss.Color("#FBBF24"))   // Amber (light darkened for WCAG AA ~6.5:1)
-	dangerColor = ld(lipgloss.Color("#B91C1C"), lipgloss.Color("#F87171"))    // Red (light darkened for WCAG AA ~5.4:1)
-	toolColor = ld(lipgloss.Color("#0E7490"), lipgloss.Color("#22D3EE"))      // Cyan — query tools (cost-bearing, distinct from write warnings)
-	planColor = ld(lipgloss.Color("#4F46E5"), lipgloss.Color("#818CF8"))      // Indigo — also used as data tool color
+	accentColor = p.Accent
+	dimTextColor = p.DimText
+	textColor = p.Text
+	brightColor = p.Bright
+	successColor = p.Success
+	warningColor = p.Warning
+	dangerColor = p.Danger
+	toolColor = p.Tool
+	planColor = p.Plan
 
 	// ── Diff colors ──
-	diffAddBg = ld(lipgloss.Color("#DCFCE7"), lipgloss.Color("#022c22"))
-	diffAddFg = ld(lipgloss.Color("#166534"), lipgloss.Color("#86efac"))
-	diffRemBg = ld(lipgloss.Color("#FEE2E2"), lipgloss.Color("#2a0a0a"))
-	diffRemFg = ld(lipgloss.Color("#991B1B"), lipgloss.Color("#fca5a5"))
+	diffAddBg = p.DiffAddBg
+	diffAddFg = p.DiffAddFg
+	diffRemBg = p.DiffRemBg
+	diffRemFg = p.DiffRemFg
 
 	// ── Input colors ──
-	inputBorderColor = ld(lipgloss.Color("#D1D5DB"), lipgloss.Color("#374151"))
-	inputBorderDimColor = ld(lipgloss.Color("#E5E7EB"), lipgloss.Color("#1F2937"))
-	inputBgColor = ld(lipgloss.Color("#ECEEF2"), lipgloss.Color("#3A3B3F"))
+	inputBorderColor = p.InputBorder
+	inputBorderDimColor = p.InputBorderDim
+	inputBgColor = p.InputBg
 
-	// Muted accent for submitted questions — same hue as accentColor
-	// but dialed back so the active input box feels "live" and past questions feel "settled."
-	settledAccent = ld(lipgloss.Color("#4A6FA5"), lipgloss.Color("#4A6FA5"))
+	// Muted accent for submitted questions — distinct per theme, dialled back
+	// so the active input box feels "live" and past questions feel "settled."
+	settledAccent = p.SettledAccent
 
 	// ── Spinner palette ──
 	// Sweep: spotlight moves across status text.
-	// Light bg: dark=visible, bright=bold black. Dark bg: dim gray → bright white.
-	sweepDim = ld(lipgloss.Color("#B0B8C4"), lipgloss.Color("#4B5563"))
-	sweepMid = ld(lipgloss.Color("#6B7280"), lipgloss.Color("#9CA3AF"))
-	sweepBright = ld(lipgloss.Color("#111827"), lipgloss.Color("#F3F4F6"))
+	sweepDim = p.SweepDim
+	sweepMid = p.SweepMid
+	sweepBright = p.SweepBright
 
-	// Cascade tilde: pulsing ocean blue.
-	// Light bg: pale→vivid dark blue. Dark bg: deep→bright cyan.
-	cascadeDim = ld(lipgloss.Color("#93C5FD"), lipgloss.Color("#1E3A5F"))
-	cascadeTrail = ld(lipgloss.Color("#3B82F6"), lipgloss.Color("#0369A1"))
-	cascadeBright = ld(lipgloss.Color("#2563EB"), lipgloss.Color("#38BDF8"))
-	cascadePeak = ld(lipgloss.Color("#1D4ED8"), lipgloss.Color("#7DD3FC"))
+	// Cascade tilde: pulsing palette (ocean blue in Midnight,
+	// warm chestnut in Verse).
+	cascadeDim = p.CascadeDim
+	cascadeTrail = p.CascadeTrail
+	cascadeBright = p.CascadeBright
+	cascadePeak = p.CascadePeak
 
 	// ── Message styles ──
 
@@ -361,9 +396,9 @@ func initPalette() {
 	gBright = lipgloss.NewStyle().Foreground(brightColor)
 	gDim = lipgloss.NewStyle().Foreground(dimTextColor)
 
-	cascadeBg1 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0C4A6E"), lipgloss.Color("#0369A1")))
-	cascadeBg2 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0369A1"), lipgloss.Color("#0EA5E9")))
-	cascadeBg3 = lipgloss.NewStyle().Background(ld(lipgloss.Color("#0EA5E9"), lipgloss.Color("#38BDF8")))
+	cascadeBg1 = lipgloss.NewStyle().Background(p.CascadeBg1)
+	cascadeBg2 = lipgloss.NewStyle().Background(p.CascadeBg2)
+	cascadeBg3 = lipgloss.NewStyle().Background(p.CascadeBg3)
 
 	// ── Pre-computed badges ──
 	riskReadBadge = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")

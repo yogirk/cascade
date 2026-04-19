@@ -7,40 +7,46 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/yogirk/cascade/internal/tui/themes"
 )
 
-// Severity colors
-var (
-	sevDebug    color.Color = lipgloss.Color("#4B5563") // dim gray
-	sevInfo     color.Color = lipgloss.Color("#6B9FFF") // blue
-	sevNotice   color.Color = lipgloss.Color("#38BDF8") // sky blue
-	sevWarning  color.Color = lipgloss.Color("#D97706") // amber
-	sevError    color.Color = lipgloss.Color("#EF4444") // red
-	sevCritical color.Color = lipgloss.Color("#F87171") // bright red
-
-	logDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	logTextStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB"))
-	logHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B9FFF")).Bold(true)
-	logSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-)
-
+// severityColor maps a log severity string to a theme-aware color. Severity
+// semantics are stable across themes (info=accent, warning=warning,
+// error/critical=danger); only the actual hex value changes with the
+// active palette.
 func severityColor(sev string) color.Color {
+	p := themes.ActivePalette()
 	switch strings.ToUpper(sev) {
 	case "DEBUG", "DEFAULT":
-		return sevDebug
+		return p.DimText
 	case "INFO":
-		return sevInfo
+		return p.Accent
 	case "NOTICE":
-		return sevNotice
+		return p.Tool
 	case "WARNING":
-		return sevWarning
+		return p.Warning
 	case "ERROR":
-		return sevError
+		return p.Danger
 	case "CRITICAL", "ALERT", "EMERGENCY":
-		return sevCritical
+		return p.Danger
 	default:
-		return sevDebug
+		return p.DimText
 	}
+}
+
+// Styles for log rendering. Built per-call from the live palette.
+func logDimStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().DimText)
+}
+func logTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Text)
+}
+func logHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().Accent).Bold(true)
+}
+func logSepStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(themes.ActivePalette().InputBorderDim)
 }
 
 func severityBadge(sev string) string {
@@ -57,9 +63,9 @@ func RenderLogEntries(entries []LogEntry, filter string, duration time.Duration)
 	var db, cb strings.Builder
 
 	// Header
-	db.WriteString("\n  " + logHeaderStyle.Render("Cloud Logging") + "  " +
-		logDimStyle.Render(fmt.Sprintf("%d entries · last %s", len(entries), formatLogDuration(duration))) + "\n")
-	db.WriteString("  " + logSepStyle.Render(strings.Repeat("─", 60)) + "\n\n")
+	db.WriteString("\n  " + logHeaderStyle().Render("Cloud Logging") + "  " +
+		logDimStyle().Render(fmt.Sprintf("%d entries · last %s", len(entries), formatLogDuration(duration))) + "\n")
+	db.WriteString("  " + logSepStyle().Render(strings.Repeat("─", 60)) + "\n\n")
 
 	cb.WriteString(fmt.Sprintf("Cloud Logging — %d entries (last %s)\n", len(entries), formatLogDuration(duration)))
 	if filter != "" {
@@ -68,7 +74,7 @@ func RenderLogEntries(entries []LogEntry, filter string, duration time.Duration)
 	cb.WriteString("\n")
 
 	if len(entries) == 0 {
-		db.WriteString("  " + logDimStyle.Render("No log entries found matching the filter.") + "\n")
+		db.WriteString("  " + logDimStyle().Render("No log entries found matching the filter.") + "\n")
 		cb.WriteString("No log entries found.\n")
 		return db.String(), cb.String()
 	}
@@ -81,7 +87,7 @@ func RenderLogEntries(entries []LogEntry, filter string, duration time.Duration)
 		badge := severityBadge(entry.Severity)
 		resource := ""
 		if entry.Resource != "" {
-			resource = logDimStyle.Render("[" + entry.Resource + "]") + " "
+			resource = logDimStyle().Render("[" + entry.Resource + "]") + " "
 		}
 
 		// Message — already truncated by extractMessage, cap display further
@@ -91,10 +97,10 @@ func RenderLogEntries(entries []LogEntry, filter string, duration time.Duration)
 		}
 
 		db.WriteString(fmt.Sprintf("  %s  %s  %s%s\n",
-			logDimStyle.Render(ts),
+			logDimStyle().Render(ts),
 			badge,
 			resource,
-			logTextStyle.Render(displayMsg)))
+			logTextStyle().Render(displayMsg)))
 
 		// Plain text
 		cb.WriteString(fmt.Sprintf("[%s] %s %s %s: %s\n",
