@@ -43,27 +43,45 @@ func (w *WelcomeModel) SetSize(width, height int) {
 }
 
 // Welcome banner styles (gBlue, gRed, gYellow, gGreen, gBright, gDim,
-// cascadeBg1-4) are defined in styles.go and initialized adaptively
+// cascadeBg1-3) are defined in styles.go and initialized adaptively
 // for light/dark terminals via initPalette().
 
-// renderCascadeLogo renders the Cascade logo — four bars stepping
-// right, each a pipeline stage.
+// renderCascadeLogo renders the Cascade logo — a 4×4 scatter of
+// square pixels in the Slokam dialect: bright highlights on a muted
+// field, theme-reactive via CascadeBg1 (muted) and CascadeBg3 (bright).
+//
+// Uses the ■ (U+25A0) glyph as the pixel unit with a 1-char horizontal
+// gap between columns. Vertical row separation comes from the cell's
+// natural font padding above/below the glyph.
 func renderCascadeLogo() string {
-	const px = " " // 1-space pixel unit
-
-	b1 := cascadeBg1.Render
-	b2 := cascadeBg2.Render
-	b3 := cascadeBg3.Render
-
-	bar := func(render func(...string) string, n int) string {
-		return render(strings.Repeat(px, n))
+	// 4×4 scatter — 1 = muted (CascadeBg1), 3 = bright (CascadeBg3).
+	pattern := [4][4]int{
+		{3, 1, 3, 3},
+		{3, 3, 1, 3},
+		{1, 3, 3, 1},
+		{3, 3, 1, 3},
 	}
-	pad := func(n int) string { return strings.Repeat(px, n) }
 
-	lines := []string{
-		pad(0) + bar(b1, 5),
-		pad(1) + bar(b2, 5),
-		pad(2) + bar(b3, 5),
+	bright := lipgloss.NewStyle().Foreground(cascadeBg3Color)
+	muted := lipgloss.NewStyle().Foreground(cascadeBg1Color)
+
+	const dot = "■"
+	const gap = " "
+
+	lines := make([]string, 4)
+	for r := 0; r < 4; r++ {
+		var b strings.Builder
+		for c := 0; c < 4; c++ {
+			if c > 0 {
+				b.WriteString(gap)
+			}
+			if pattern[r][c] == 3 {
+				b.WriteString(bright.Render(dot))
+			} else {
+				b.WriteString(muted.Render(dot))
+			}
+		}
+		lines[r] = b.String()
 	}
 	return strings.Join(lines, "\n")
 }
@@ -87,12 +105,14 @@ func (w WelcomeModel) View() string {
 	if totalW > 90 {
 		totalW = 90
 	}
-	leftW := totalW * 20 / 100
+	// Fixed-width left panel sized for the 9-char scatter logo (5 dots + 4 gaps)
+	// plus symmetric breathing room. Right panel takes the rest.
+	leftW := 15
 	rightW := totalW - leftW
 
 	leftStyle := lipgloss.NewStyle().
 		Width(leftW).
-		Padding(1, 2, 1, 4)
+		Padding(1, 3, 1, 3)
 
 	leftPanel := leftStyle.Render(leftContent)
 
