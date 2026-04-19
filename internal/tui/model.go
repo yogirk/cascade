@@ -1008,6 +1008,11 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 		// palette baked in — replace their content with a fresh render
 		// before rebuilding so the banner updates too.
 		m.chat.RefreshWelcomeSnapshot(m.welcome.View())
+		// Input textarea captures inner styles at construction (base,
+		// placeholder, cursor line, end-of-buffer). Without refresh the
+		// end-of-buffer region keeps the old theme's background — reads
+		// as a trailing black/wrong-colored strip after the placeholder.
+		m.input.RefreshStyles()
 		m.chat.ForceRebuild()
 		m.chat.AddMessage(ChatMessage{
 			Role:    "system",
