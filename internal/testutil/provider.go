@@ -25,6 +25,8 @@ func (m *MockProvider) Model() string {
 }
 
 // SetModel updates the configured model name.
+// Required to satisfy the provider.ModelSwitcher compile-time assertion above
+// so the mock stays swappable for real providers in model-switch code paths.
 func (m *MockProvider) SetModel(name string) {
 	m.ModelName = name
 }
