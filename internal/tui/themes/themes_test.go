@@ -22,6 +22,7 @@ func TestGet_KnownTheme(t *testing.T) {
 	}{
 		{"verse-in-code", "verse-in-code"},
 		{"midnight-hydrology", "midnight-hydrology"},
+		{"classic", "classic"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -62,12 +63,12 @@ func TestAll_StableOrder(t *testing.T) {
 	}
 }
 
-func TestAll_IncludesBothShippedThemes(t *testing.T) {
+func TestAll_IncludesShippedThemes(t *testing.T) {
 	seen := map[string]bool{}
 	for _, t := range All() {
 		seen[t.Name] = true
 	}
-	for _, want := range []string{"verse-in-code", "midnight-hydrology"} {
+	for _, want := range []string{"verse-in-code", "midnight-hydrology", "classic"} {
 		if !seen[want] {
 			t.Errorf("All() missing shipped theme %q", want)
 		}

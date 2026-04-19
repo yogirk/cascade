@@ -107,6 +107,7 @@ type DisplayConfig struct {
 	//   - "light"/"dark"       — force lightness, keep default theme (back-compat)
 	//   - "verse-in-code"      — warm parchment + chestnut (slokam-aligned, default)
 	//   - "midnight-hydrology" — cool water mineral tones (distinctive alternative)
+	//   - "classic"            — legacy main-branch palette (blue accent, cyan queries, indigo data)
 	//
 	// Unknown values are ignored (falls back to default).
 	Theme string `toml:"theme"` // default: "auto"

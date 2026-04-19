@@ -10,6 +10,7 @@ const DefaultName = "verse-in-code"
 var registry = map[string]Theme{
 	VerseInCode.Name:       VerseInCode,
 	MidnightHydrology.Name: MidnightHydrology,
+	Classic.Name:           Classic,
 }
 
 // Default returns the default theme. Never returns the zero Theme — if the
