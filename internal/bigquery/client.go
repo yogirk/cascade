@@ -184,17 +184,6 @@ func FormatBytes(bytes int64) string {
 	}
 }
 
-// FormatCost returns a dollar-formatted cost string.
-func FormatCost(cost float64) string {
-	if cost < 0 {
-		return "N/A (DML)"
-	}
-	if cost < 0.01 {
-		return "$0.00"
-	}
-	return fmt.Sprintf("$%.2f", cost)
-}
-
 // FormatRowCount returns a human-readable row count with comma separators.
 func FormatRowCount(n int64) string {
 	s := fmt.Sprintf("%d", n)

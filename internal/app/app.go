@@ -266,7 +266,7 @@ func buildProvider(ctx context.Context, modelName string, m *auth.ModelAuth) (pr
 	case "anthropic":
 		prov, err := antprov.New(modelName, "")
 		if err != nil {
-			return nil, fmt.Errorf("Anthropic provider setup failed: %w", err)
+			return nil, fmt.Errorf("anthropic provider setup failed: %w", err)
 		}
 		return prov, nil
 

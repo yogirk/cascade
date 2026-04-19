@@ -33,7 +33,7 @@ func New(modelName, apiKeyEnv string) (*AnthropicProvider, error) {
 	}
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
-		return nil, fmt.Errorf("Anthropic API key not found: set %s environment variable", apiKeyEnv)
+		return nil, fmt.Errorf("anthropic API key not found: set %s environment variable", apiKeyEnv)
 	}
 
 	client := ant.NewClient(option.WithAPIKey(apiKey))

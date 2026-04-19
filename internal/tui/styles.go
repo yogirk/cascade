@@ -392,7 +392,7 @@ func RiskBadge(riskLevel string) string {
 	}
 }
 
-// ToolBullet returns a colored ∞ bullet based on the tool's category.
+// ToolBulletByRisk returns a colored, shape-differentiated bullet.
 //
 //	Green  ○ — read-only (grep, glob, read)
 //	Amber  ◇ — write/modify (write_file, edit_file)
@@ -402,11 +402,6 @@ func RiskBadge(riskLevel string) string {
 //
 // Shape encodes the action category (accessible without color).
 // Color encodes the risk level (redundant with shape for sighted users).
-func ToolBullet(toolName string) string {
-	return ToolBulletByRisk(toolName, "")
-}
-
-// ToolBulletByRisk returns a colored, shape-differentiated bullet.
 // When riskLevel is provided, it determines the glyph shape.
 // Special tool names (bigquery_query, cloud_logging, gcs) override to
 // category-specific shapes regardless of risk level.

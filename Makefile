@@ -1,4 +1,4 @@
-.PHONY: build test test-short lint clean
+.PHONY: build test test-short lint check tools clean
 
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
 
@@ -18,6 +18,14 @@ lint:
 		echo "golangci-lint not installed, falling back to go vet"; \
 		go vet ./...; \
 	fi
+
+tools:
+	go install honnef.co/go/tools/cmd/staticcheck@latest
+	go install golang.org/x/tools/cmd/deadcode@latest
+
+check: lint
+	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; else echo "staticcheck not installed; run 'make tools'"; fi
+	@if command -v deadcode >/dev/null 2>&1; then deadcode -test ./...; else echo "deadcode not installed; run 'make tools'"; fi
 
 clean:
 	rm -rf bin/
