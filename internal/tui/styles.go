@@ -162,6 +162,11 @@ var (
 	cascadeBg1 lipgloss.Style
 	cascadeBg2 lipgloss.Style
 	cascadeBg3 lipgloss.Style
+
+	// Raw colors for the welcome scatter logo — renderCascadeLogo uses
+	// half-block glyphs (▀) which need fg+bg at once, not a Background style.
+	cascadeBg1Color color.Color
+	cascadeBg3Color color.Color
 )
 
 // Pre-computed badge strings (avoid allocating styles on every render).
@@ -399,6 +404,8 @@ func initPalette() {
 	cascadeBg1 = lipgloss.NewStyle().Background(p.CascadeBg1)
 	cascadeBg2 = lipgloss.NewStyle().Background(p.CascadeBg2)
 	cascadeBg3 = lipgloss.NewStyle().Background(p.CascadeBg3)
+	cascadeBg1Color = p.CascadeBg1
+	cascadeBg3Color = p.CascadeBg3
 
 	// ── Pre-computed badges ──
 	riskReadBadge = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")

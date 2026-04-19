@@ -427,6 +427,20 @@ func TestWelcomeView(t *testing.T) {
 	}
 }
 
+func TestRenderCascadeLogoFootprint(t *testing.T) {
+	logo := renderCascadeLogo()
+	lines := strings.Split(logo, "\n")
+	if got := len(lines); got != 4 {
+		t.Fatalf("renderCascadeLogo() produced %d rows, want 4", got)
+	}
+	// 4 dots × 1 char + 3 gaps × 1 char = 7 cells per row.
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 7 {
+			t.Fatalf("renderCascadeLogo() row %d width = %d, want 7", i, got)
+		}
+	}
+}
+
 func TestStatusBarLayout(t *testing.T) {
 	s := NewStatusModel("gemini-2.5-pro", permission.ModeAsk)
 	s.SetWidth(100)
@@ -1221,13 +1235,13 @@ func TestHandleKey_VisibleConfirmConsumesInputEvenIfStateDrifts(t *testing.T) {
 	resp := make(chan types.ApprovalDecision, 1)
 
 	m := Model{
-		input:          NewInputModel(),
-		status:         NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
-		spinner:        NewSpinnerModel(),
-		confirm:        NewConfirmModel(),
-		width:          120,
-		height:         30,
-		state:          StateIdle,
+		input:           NewInputModel(),
+		status:          NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner:         NewSpinnerModel(),
+		confirm:         NewConfirmModel(),
+		width:           120,
+		height:          30,
+		state:           StateIdle,
 		preConfirmState: StateToolExecuting,
 	}
 	m.confirm.Show("write_file", []byte(`{"file_path":"/tmp/test.txt","content":"hello"}`), "DML", resp)
