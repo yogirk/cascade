@@ -16,6 +16,7 @@ import (
 	"github.com/yogirk/cascade/internal/app"
 	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/provider"
+	bqrender "github.com/yogirk/cascade/internal/tools/bigquery"
 	logtool "github.com/yogirk/cascade/internal/tools/logging"
 	"github.com/yogirk/cascade/internal/tui/themes"
 	"github.com/yogirk/cascade/pkg/types"
@@ -717,7 +718,16 @@ func (m *Model) layout() {
 	m.welcome.SetSize(m.width-1, chatHeight) // -1 for the 1-space left indent
 	m.input.SetTerminalHeight(m.height)
 	m.input.SetWidth(m.width - 4)            // 2-space gutter on both sides
-	m.status.SetWidth(m.width) // Status bar stays full-width
+	m.status.SetWidth(m.width)               // Status bar stays full-width
+
+	// Tool output (BigQuery tables, schema, query results) sits inside the
+	// chat viewport with a small left indent. Reserve ~6 cells for the
+	// bullet, gutter, and right breathing room.
+	toolWidth := contentWidth - 6
+	if toolWidth < 40 {
+		toolWidth = 40
+	}
+	bqrender.SetRenderWidth(toolWidth)
 }
 
 // indentBlock prepends a margin to each line of a multi-line string.
