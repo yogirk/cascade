@@ -769,6 +769,289 @@ func TestExtractCodeBlocks_Multiple(t *testing.T) {
 	}
 }
 
+func TestChatModel_MessageAtViewportY(t *testing.T) {
+	chat := NewChatModel(80, 20)
+	longBody := strings.Repeat("data row\n", 10)
+	chat.AddMessage(ChatMessage{Role: "user", Content: "hello"})
+	chat.AddMessage(ChatMessage{
+		Role:     "tool",
+		ToolName: "bq.query",
+		Content:  longBody,
+	})
+	chat.AddMessage(ChatMessage{Role: "assistant", Content: "ok"})
+
+	// First user message owns line 0.
+	if got := chat.MessageAtLine(0); got != 0 {
+		t.Errorf("MessageAtLine(0) = %d, want 0", got)
+	}
+	// Tool block lives on lines starting at lineRanges[1].start.
+	toolStart := chat.lineRanges[1].start
+	if got := chat.MessageAtLine(toolStart); got != 1 {
+		t.Errorf("MessageAtLine(toolStart=%d) = %d, want 1", toolStart, got)
+	}
+	if got := chat.MessageAtLine(toolStart + 1); got != 1 {
+		t.Errorf("clicking inside tool block must resolve to tool index, got %d", got)
+	}
+
+	// Out of range returns -1.
+	if got := chat.MessageAtLine(10_000); got != -1 {
+		t.Errorf("out-of-range MessageAtLine = %d, want -1", got)
+	}
+}
+
+func TestChatModel_ToggleExpandAt(t *testing.T) {
+	chat := NewChatModel(80, 20)
+	longBody := strings.Repeat("row\n", 10) // > defaultVisible (3)
+	chat.AddMessage(ChatMessage{Role: "user", Content: "go"})
+	chat.AddMessage(ChatMessage{Role: "tool", ToolName: "bq.query", Content: longBody})
+	chat.AddMessage(ChatMessage{Role: "tool", ToolName: "bq.query", Content: "short\n"})
+
+	// Non-expandable index returns false, no panic.
+	if chat.ToggleExpandAt(0) {
+		t.Error("ToggleExpandAt(user) should return false")
+	}
+	if chat.ToggleExpandAt(2) {
+		t.Error("ToggleExpandAt(short tool) should return false (<= defaultVisible lines)")
+	}
+	if chat.ToggleExpandAt(99) {
+		t.Error("ToggleExpandAt(out of range) should return false")
+	}
+
+	// Expand the long tool block, then collapse it.
+	if !chat.ToggleExpandAt(1) {
+		t.Fatal("expected first ToggleExpandAt(1) to return true")
+	}
+	if !chat.expandedSet[1] {
+		t.Error("expandedSet[1] should be true after first toggle")
+	}
+	if !chat.ToggleExpandAt(1) {
+		t.Fatal("expected second ToggleExpandAt(1) to return true")
+	}
+	if chat.expandedSet[1] {
+		t.Error("expandedSet[1] should be cleared after second toggle")
+	}
+}
+
+func TestChatModel_FocusedExpandableTool(t *testing.T) {
+	chat := NewChatModel(80, 200) // tall viewport — everything visible
+	longBody := strings.Repeat("row\n", 10)
+	chat.AddMessage(ChatMessage{Role: "tool", ToolName: "bq.query", Content: longBody})
+	chat.AddMessage(ChatMessage{Role: "assistant", Content: "ok"})
+	chat.AddMessage(ChatMessage{Role: "tool", ToolName: "bq.list", Content: longBody})
+
+	// Bottom-most expandable tool (index 2) wins.
+	if got := chat.FocusedExpandableTool(); got != 2 {
+		t.Errorf("FocusedExpandableTool = %d, want 2", got)
+	}
+}
+
+func TestHighlightCode_DistinguishesKeywordsAcrossLanguages(t *testing.T) {
+	// Force a known palette so styling is deterministic.
+	SetTheme("classic")
+
+	cases := []struct {
+		name string
+		lang string
+		src  string
+	}{
+		{"sql", "sql", "SELECT id FROM users"},
+		{"python", "python", "def foo(): return 1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := highlightCode(tc.src, tc.lang)
+
+			if !strings.Contains(stripANSI(got), tc.src) {
+				t.Errorf("highlighted output lost source text: visible=%q want substring %q", stripANSI(got), tc.src)
+			}
+
+			plain := StatusDimStyle.Render(tc.src)
+			if got == plain {
+				t.Errorf("highlightCode(%s) produced identical output to plain dim render — keywords not styled", tc.lang)
+			}
+		})
+	}
+}
+
+func TestLanguageForArgKey(t *testing.T) {
+	if got := languageForArgKey("sql"); got != "sql" {
+		t.Errorf("languageForArgKey(sql) = %q, want sql", got)
+	}
+	if got := languageForArgKey("query"); got != "sql" {
+		t.Errorf("languageForArgKey(query) = %q, want sql", got)
+	}
+	if got := languageForArgKey("file_path"); got != "" {
+		t.Errorf("languageForArgKey(file_path) = %q, want empty (plain text)", got)
+	}
+}
+
+func TestCompactArgs_ReturnsKey(t *testing.T) {
+	args := json.RawMessage(`{"sql": "SELECT 1"}`)
+	key, val := compactArgs(args)
+	if key != "sql" {
+		t.Errorf("expected key=sql, got %q", key)
+	}
+	if val != "SELECT 1" {
+		t.Errorf("expected value=%q, got %q", "SELECT 1", val)
+	}
+}
+
+// stripANSI removes ANSI SGR escape sequences for comparison.
+func stripANSI(s string) string {
+	var sb strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if r == 0x1b {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if r == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
+}
+
+func TestRenderToolMessage_BranchGlyphOnceOnFirstBodyLine(t *testing.T) {
+	SetTheme("classic")
+
+	msg := ChatMessage{
+		Role:     "tool",
+		ToolName: "shell",
+		Content:  "line one\nline two\nline three",
+	}
+	rendered := renderToolMessage(msg, true) // expanded so all lines render
+
+	visible := stripANSI(rendered)
+	branchCount := strings.Count(visible, "⎿")
+	if branchCount != 1 {
+		t.Errorf("expected exactly 1 branch glyph in tool body, got %d. Rendered:\n%s", branchCount, visible)
+	}
+
+	bodyLines := strings.Split(visible, "\n")
+	if len(bodyLines) < 4 {
+		t.Fatalf("expected header + 3 body lines, got %d:\n%s", len(bodyLines), visible)
+	}
+	if !strings.Contains(bodyLines[1], "⎿") {
+		t.Errorf("first body line missing branch glyph: %q", bodyLines[1])
+	}
+	if strings.Contains(bodyLines[2], "⎿") {
+		t.Errorf("continuation line should not carry branch glyph: %q", bodyLines[2])
+	}
+}
+
+func TestRenderToolMessage_ErrorKeepsBangOnBranch(t *testing.T) {
+	SetTheme("classic")
+
+	msg := ChatMessage{
+		Role:     "tool",
+		ToolName: "shell",
+		Content:  "boom\nstack frame",
+		IsError:  true,
+	}
+	visible := stripANSI(renderToolMessage(msg, false))
+	bodyLines := strings.Split(visible, "\n")
+	if len(bodyLines) < 3 {
+		t.Fatalf("expected header + 2 error lines, got:\n%s", visible)
+	}
+	if !strings.Contains(bodyLines[1], "⎿") || !strings.Contains(bodyLines[1], "!") {
+		t.Errorf("first error line should carry branch + ! marker: %q", bodyLines[1])
+	}
+	if strings.Contains(bodyLines[2], "!") {
+		t.Errorf("continuation error line should not repeat ! marker: %q", bodyLines[2])
+	}
+}
+
+func TestSplitMarkdownTables_DetectsTablesAndPreservesProse(t *testing.T) {
+	content := `Top contributors below.
+
+| User | Posts |
+|------|------:|
+| alice | 12 |
+| bob   |  9 |
+
+Notes follow.`
+
+	segs := splitMarkdownTables(content)
+	if len(segs) != 3 {
+		t.Fatalf("expected 3 segments (prose, table, prose), got %d: %+v", len(segs), segs)
+	}
+	if segs[0].isTable || !strings.Contains(segs[0].text, "Top contributors") {
+		t.Errorf("segment 0 should be the lead prose, got %+v", segs[0])
+	}
+	if !segs[1].isTable {
+		t.Errorf("segment 1 should be flagged as a table, got %+v", segs[1])
+	}
+	if !strings.Contains(segs[1].text, "| alice | 12 |") {
+		t.Errorf("table segment lost rows: %q", segs[1].text)
+	}
+	if segs[2].isTable || !strings.Contains(segs[2].text, "Notes follow") {
+		t.Errorf("segment 2 should be the trailing prose, got %+v", segs[2])
+	}
+}
+
+func TestSplitMarkdownTables_NoFalsePositiveOnSinglePipeLine(t *testing.T) {
+	// A line with `|` but no separator must NOT be treated as a table.
+	content := "Use the syntax `a | b` for either."
+	segs := splitMarkdownTables(content)
+	if len(segs) != 1 || segs[0].isTable {
+		t.Errorf("single pipe-bearing line should remain prose, got %+v", segs)
+	}
+}
+
+func TestRenderMarkdownTable_ShrinkWrapsWithBorder(t *testing.T) {
+	SetTheme("classic")
+
+	md := `| User | Posts |
+|------|------:|
+| alice | 12 |
+| bob | 9 |`
+
+	out := renderMarkdownTable(md)
+	visible := stripANSI(out)
+
+	for _, want := range []string{"User", "Posts", "alice", "12", "bob", "9"} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("rendered table missing %q. Got:\n%s", want, visible)
+		}
+	}
+	// Rounded border characters from lipgloss.RoundedBorder() should appear.
+	if !strings.ContainsAny(visible, "╭╮╯╰") {
+		t.Errorf("expected rounded border corners in shrink-wrapped table; got:\n%s", visible)
+	}
+}
+
+func TestRenderMarkdown_DispatchesTablesToCascadeRenderer(t *testing.T) {
+	SetTheme("classic")
+
+	content := `Result follows.
+
+| Col | Val |
+|-----|-----|
+| a   | 1   |
+
+End.`
+
+	out := renderMarkdown(content, 100)
+	visible := stripANSI(out)
+
+	for _, want := range []string{"Result follows", "Col", "Val", "End"} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("rendered output missing %q. Got:\n%s", want, visible)
+		}
+	}
+	// Confirm the table piece took the cascade path (rounded corners) rather
+	// than Glamour's flat box-drawing.
+	if !strings.ContainsAny(visible, "╭╮╯╰") {
+		t.Errorf("expected rounded corners — table didn't route through cascade renderer:\n%s", visible)
+	}
+}
+
 func TestExtractCodeBlocks_None(t *testing.T) {
 	blocks := extractCodeBlocks("no code blocks here")
 	if len(blocks) != 0 {

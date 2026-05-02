@@ -45,9 +45,14 @@ func SetRenderWidth(w int) {
 	}
 }
 
-// cascadeTable builds a bordered table sized to the current renderWidth,
+// cascadeTable builds a bordered table that shrink-wraps to its content,
 // with column separators and a header rule. Rounded corners for a soft,
 // modern look. Alternating row dimming preserved for scanability.
+//
+// We deliberately do not call .Width(renderWidth): forcing fill-to-width
+// distributes slack across columns and produces a stretched, hard-to-scan
+// table for short content. renderWidth is still tracked for callers that
+// need to know the budget; tables themselves stay as wide as their cells.
 func cascadeTable(headers []string) *table.Table {
 	return table.New().
 		Border(lipgloss.RoundedBorder()).
@@ -73,8 +78,7 @@ func cascadeTable(headers []string) *table.Table {
 			}
 			return s.Foreground(dimColor()) // Alternating dim row
 		}).
-		Wrap(false).
-		Width(renderWidth)
+		Wrap(false)
 }
 
 // RenderQueryResults renders query results as a styled table.

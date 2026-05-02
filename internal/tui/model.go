@@ -196,6 +196,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case tea.MouseClickMsg:
+		// Left-click without modifiers inside the chat viewport toggles the
+		// tool block under the cursor. Modified clicks (e.g. Option+drag for
+		// native text selection) are intentionally ignored so the terminal
+		// can handle them.
+		if msg.Button == tea.MouseLeft && msg.Mod == 0 {
+			if idx := m.chat.MessageAtViewportY(msg.Y); idx >= 0 {
+				m.chat.ToggleExpandAt(idx)
+			}
+		}
+		return m, nil
+
 	case tickMsg:
 		if m.state == StateStreaming {
 			drained := m.renderer.DrainAll()
@@ -910,7 +922,8 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  Shift+Enter     New line",
 			"  ↑ / ↓           Input history",
 			"  PgUp / PgDown   Scroll chat",
-			"  Ctrl+E          Expand/collapse last tool output",
+			"  Ctrl+E          Expand/collapse the visible tool output",
+			"  Click           Toggle the tool block under the pointer",
 			"  Ctrl+Y          Copy last response",
 			"  Shift+Tab       Cycle permission mode",
 			"  Ctrl+C          Cancel / quit",

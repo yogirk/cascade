@@ -99,12 +99,37 @@ func (c ConfirmModel) View() string {
 	sb.WriteString(ToolNameStyle.Render(c.toolName))
 	sb.WriteString(" wants to execute:\n")
 
-	// Human-readable argument summary
-	summary := formatArgsSummary(c.toolName, c.input)
-	for _, line := range summary {
-		sb.WriteString("  ")
-		sb.WriteString(StatusDimStyle.Render(line))
-		sb.WriteString("\n")
+	// Human-readable argument summary. SQL-bearing tools route through
+	// highlightCode so the preview reads with the same syntax-highlight
+	// affordance as the chat header — keeps the visual language consistent
+	// across "about to execute" and "executing" states.
+	if sql := extractConfirmSQL(c.toolName, c.input); sql != "" {
+		highlighted := highlightCode(sql, "sql")
+		lines := strings.Split(highlighted, "\n")
+		const max = 6
+		shown := lines
+		truncated := 0
+		if len(lines) > max {
+			shown = lines[:max]
+			truncated = len(lines) - max
+		}
+		for _, line := range shown {
+			sb.WriteString("  ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		if truncated > 0 {
+			sb.WriteString("  ")
+			sb.WriteString(StatusDimStyle.Faint(true).Render(fmt.Sprintf("...%d more lines", truncated)))
+			sb.WriteString("\n")
+		}
+	} else {
+		summary := formatArgsSummary(c.toolName, c.input)
+		for _, line := range summary {
+			sb.WriteString("  ")
+			sb.WriteString(StatusDimStyle.Render(line))
+			sb.WriteString("\n")
+		}
 	}
 
 	sb.WriteString("\n")
@@ -162,6 +187,28 @@ var confirmOptions = []confirmOption{
 	{label: "Allow once", description: "Run this exact action now", action: types.ApprovalAllowOnce},
 	{label: "Allow tool for session", description: "Skip future prompts for this tool until you exit", action: types.ApprovalAllowToolSession},
 	{label: "Deny", description: "Block this action", action: types.ApprovalDeny},
+}
+
+// extractConfirmSQL pulls the SQL string from tool args for SQL-bearing tools.
+// Returns "" for non-SQL tools or when args don't carry a sql field — caller
+// then falls back to the generic formatArgsSummary path.
+func extractConfirmSQL(toolName string, input json.RawMessage) string {
+	switch toolName {
+	case "bigquery_query", "bigquery_cost":
+	default:
+		return ""
+	}
+	if len(input) == 0 {
+		return ""
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return ""
+	}
+	if sqlStr, ok := args["sql"].(string); ok {
+		return sqlStr
+	}
+	return ""
 }
 
 // formatArgsSummary produces human-readable lines summarizing tool args.
