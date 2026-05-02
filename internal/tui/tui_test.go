@@ -13,9 +13,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/app"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/app"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -430,13 +430,19 @@ func TestWelcomeView(t *testing.T) {
 func TestRenderCascadeLogoFootprint(t *testing.T) {
 	logo := renderCascadeLogo()
 	lines := strings.Split(logo, "\n")
-	if got := len(lines); got != 4 {
-		t.Fatalf("renderCascadeLogo() produced %d rows, want 4", got)
+	// 3 tile rows interleaved with 2 blank "groove" rows = 5 lines total.
+	if got := len(lines); got != 5 {
+		t.Fatalf("renderCascadeLogo() produced %d rows, want 5", got)
 	}
-	// 4 dots × 1 char + 3 gaps × 1 char = 7 cells per row.
+	// Tile rows (even indices): 4 tiles × 2 cells + 3 gaps × 2 cells = 14 cells.
+	// Groove rows (odd indices): empty.
 	for i, line := range lines {
-		if got := lipgloss.Width(line); got != 7 {
-			t.Fatalf("renderCascadeLogo() row %d width = %d, want 7", i, got)
+		want := 14
+		if i%2 == 1 {
+			want = 0
+		}
+		if got := lipgloss.Width(line); got != want {
+			t.Fatalf("renderCascadeLogo() row %d width = %d, want %d", i, got, want)
 		}
 	}
 }
