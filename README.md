@@ -75,6 +75,14 @@ make build
 go install github.com/slokam-ai/cascade/cmd/cascade@latest
 ```
 
+Cascade is **pure-Go** — no C toolchain required. The `Makefile` pins
+`CGO_ENABLED=0` so `make build` and `make test` produce a single static
+binary that drops onto darwin / linux / windows without `gcc`. Run
+`make verify-pure-go` to cross-compile to every supported OS — useful
+before tagging a release. If a future change accidentally pulls in a
+CGO-only dep, the build will fail loudly rather than silently producing
+a non-portable binary.
+
 ### Run
 
 ```bash
