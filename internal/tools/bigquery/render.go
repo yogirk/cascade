@@ -31,31 +31,36 @@ func dimStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(dimColor())
 }
 
-// cascadeTable builds a table with the Cascade conversational style:
-// bold header row, thin separator, no borders, padding-separated columns,
-// optional alternating row dimming.
+// renderWidth is the available width in cells for tool-output tables.
+// Set by the TUI on window resize via SetRenderWidth; falls back to 120
+// for tests and one-shot mode where no terminal is attached.
+var renderWidth = 120
+
+// SetRenderWidth updates the width budget used by cascadeTable(). Called
+// from the TUI layout pass on WindowSizeMsg. Safe to call repeatedly.
+// Width <= 0 is ignored.
+func SetRenderWidth(w int) {
+	if w > 0 {
+		renderWidth = w
+	}
+}
+
+// cascadeTable builds a bordered table that shrink-wraps to its content,
+// with column separators and a header rule. Rounded corners for a soft,
+// modern look. Alternating row dimming preserved for scanability.
+//
+// We deliberately do not call .Width(renderWidth): forcing fill-to-width
+// distributes slack across columns and produces a stretched, hard-to-scan
+// table for short content. renderWidth is still tracked for callers that
+// need to know the budget; tables themselves stay as wide as their cells.
 func cascadeTable(headers []string) *table.Table {
 	return table.New().
-		Border(lipgloss.Border{
-			Top:         "",
-			Bottom:      "",
-			Left:        "",
-			Right:       "",
-			TopLeft:     "",
-			TopRight:    "",
-			BottomLeft:  "",
-			BottomRight: "",
-			MiddleLeft:  "",
-			MiddleRight: "",
-			Middle:      "",
-			MiddleTop:   "",
-			MiddleBottom: "",
-		}).
-		BorderTop(false).
-		BorderBottom(false).
-		BorderLeft(false).
-		BorderRight(false).
-		BorderColumn(false).
+		Border(lipgloss.RoundedBorder()).
+		BorderTop(true).
+		BorderBottom(true).
+		BorderLeft(true).
+		BorderRight(true).
+		BorderColumn(true).
 		BorderRow(false).
 		BorderHeader(true).
 		BorderStyle(lipgloss.NewStyle().Foreground(separatorClr())).
@@ -65,17 +70,15 @@ func cascadeTable(headers []string) *table.Table {
 				return lipgloss.NewStyle().
 					Foreground(accentColor()).
 					Bold(true).
-					PaddingRight(2)
+					Padding(0, 1)
 			}
-			// Subtle alternating rows for scanability
-			s := lipgloss.NewStyle().PaddingRight(2)
+			s := lipgloss.NewStyle().Padding(0, 1)
 			if row%2 == 0 {
 				return s.Foreground(textColor())
 			}
 			return s.Foreground(dimColor()) // Alternating dim row
 		}).
-		Wrap(false).
-		Width(120)
+		Wrap(false)
 }
 
 // RenderQueryResults renders query results as a styled table.

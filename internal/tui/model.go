@@ -16,6 +16,7 @@ import (
 	"github.com/yogirk/cascade/internal/app"
 	plat "github.com/yogirk/cascade/internal/platform"
 	"github.com/yogirk/cascade/internal/provider"
+	bqrender "github.com/yogirk/cascade/internal/tools/bigquery"
 	logtool "github.com/yogirk/cascade/internal/tools/logging"
 	"github.com/yogirk/cascade/internal/tui/themes"
 	"github.com/yogirk/cascade/pkg/types"
@@ -194,6 +195,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseClickMsg:
+		// Left-click without modifiers inside the chat viewport toggles the
+		// tool block under the cursor. Modified clicks (e.g. Option+drag for
+		// native text selection) are intentionally ignored so the terminal
+		// can handle them.
+		if msg.Button == tea.MouseLeft && msg.Mod == 0 {
+			if idx := m.chat.MessageAtViewportY(msg.Y); idx >= 0 {
+				m.chat.ToggleExpandAt(idx)
+			}
+		}
+		return m, nil
 
 	case tickMsg:
 		if m.state == StateStreaming {
@@ -717,7 +730,16 @@ func (m *Model) layout() {
 	m.welcome.SetSize(m.width-1, chatHeight) // -1 for the 1-space left indent
 	m.input.SetTerminalHeight(m.height)
 	m.input.SetWidth(m.width - 4)            // 2-space gutter on both sides
-	m.status.SetWidth(m.width) // Status bar stays full-width
+	m.status.SetWidth(m.width)               // Status bar stays full-width
+
+	// Tool output (BigQuery tables, schema, query results) sits inside the
+	// chat viewport with a small left indent. Reserve ~6 cells for the
+	// bullet, gutter, and right breathing room.
+	toolWidth := contentWidth - 6
+	if toolWidth < 40 {
+		toolWidth = 40
+	}
+	bqrender.SetRenderWidth(toolWidth)
 }
 
 // indentBlock prepends a margin to each line of a multi-line string.
@@ -900,7 +922,8 @@ func (m *Model) handleSlashCommand(text string) tea.Cmd {
 			"  Shift+Enter     New line",
 			"  ↑ / ↓           Input history",
 			"  PgUp / PgDown   Scroll chat",
-			"  Ctrl+E          Expand/collapse last tool output",
+			"  Ctrl+E          Expand/collapse the visible tool output",
+			"  Click           Toggle the tool block under the pointer",
 			"  Ctrl+Y          Copy last response",
 			"  Shift+Tab       Cycle permission mode",
 			"  Ctrl+C          Cancel / quit",
