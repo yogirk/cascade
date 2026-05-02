@@ -2,6 +2,21 @@
 
 All notable changes to Cascade are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **DuckDB as a first-class engine.** Three new tools: `duckdb_query` (SQL against the local session DB and/or `gs://*.parquet` via httpfs), `duckdb_schema` (list/describe/sample), and `bq_to_duckdb` (BQ EXPORT → GCS Parquet → COPY into a local table). The wedge: when a user is iterating, they can pull a slice once and beat on it locally with no per-scan cost.
+- **Engine-agnostic GCS auth via OAuth bearer + httpfs custom headers.** Works with whatever ResourceAuth resolved — ADC, impersonation, or service-account key — so users on impersonation/SA-key auth get DuckDB↔GCS for free without any new setup. Glob expansion (including hive-partitioned `year=*/month=*`) happens server-side via the GCS list API; resolved https URLs are passed as a parameterized `read_parquet([…])` call rather than textually rewriting user SQL.
+- **Volume gate on `bq_to_duckdb`.** Default thresholds: warn at 1 GiB, hard-stop at 50 GiB unless `force=true`. Asymmetric design — pulling terabytes onto a laptop is real damage, while reading more than expected from local DuckDB self-corrects.
+- **Per-invocation DuckDB session** under `~/.cascade/duckdb/{id}.db`, auto-removed on clean exit unless `[duckdb] keep_session_db = true`. In-process RWMutex serializes writers; cross-process safety is delegated to DuckDB's own file lock.
+- **Engine-agnostic render package** (`internal/render`) lifts `CascadeTable`, palette accessors, and format helpers out of `internal/tools/bigquery` so the new DuckDB tools reuse the styled-table primitives without coupling to the BQ tool surface.
+
+### Changed
+
+- **Pure-Go invariant retained.** DuckDB ships as a subprocess wrapper around the user's installed `duckdb` CLI (≥ 1.2.0), with build-tagged Setpgid (Unix) / `CREATE_NEW_PROCESS_GROUP` (Windows) for clean Ctrl-C kill. `CGO_ENABLED=0` cross-compiles still pass on darwin / linux / windows.
+- **Lazy DuckDB tool registration.** When the CLI is missing or below the floor, the agent never sees the tools at all and the user gets a one-line install hint at startup. When GCP auth is unavailable, only `duckdb_query` and `duckdb_schema` register; `bq_to_duckdb` requires staging.
+
 ## [0.4.0.0] — 2026-05-02
 
 ### Added
