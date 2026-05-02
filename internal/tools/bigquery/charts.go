@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/slokam-ai/cascade/internal/render"
 	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
@@ -77,7 +78,7 @@ func RenderSparkline(data []float64) string {
 // Format: ▂▃▅▇█▆▃  $42.17 total  |  avg $6.02/day  |  peak $12.30
 func SparklineWithAnnotation(data []float64, label string, formatValue func(float64) string) string {
 	if len(data) == 0 {
-		return dimStyle().Render("No data")
+		return render.DimStyle().Render("No data")
 	}
 
 	spark := RenderSparkline(data)
@@ -94,7 +95,7 @@ func SparklineWithAnnotation(data []float64, label string, formatValue func(floa
 	annotation := fmt.Sprintf("%s total  |  avg %s/day  |  peak %s",
 		formatValue(total), formatValue(avg), formatValue(peak))
 
-	return spark + "  " + dimStyle().Render(annotation)
+	return spark + "  " + render.DimStyle().Render(annotation)
 }
 
 // BarChartItem represents a single row in a horizontal bar chart.
@@ -108,7 +109,7 @@ type BarChartItem struct {
 // maxBarWidth controls the maximum width of the bar portion (in characters).
 func RenderBarChart(items []BarChartItem, maxBarWidth int) string {
 	if len(items) == 0 {
-		return dimStyle().Render("No data")
+		return render.DimStyle().Render("No data")
 	}
 
 	if maxBarWidth <= 0 {
@@ -169,7 +170,7 @@ func RenderBarChart(items []BarChartItem, maxBarWidth int) string {
 		sb.WriteString(fmt.Sprintf("  %-*s  %s%s  %s",
 			maxLabelW, label,
 			bar, padding,
-			dimStyle().Render(item.FormattedValue)))
+			render.DimStyle().Render(item.FormattedValue)))
 
 		if i < len(items)-1 {
 			sb.WriteString("\n")
