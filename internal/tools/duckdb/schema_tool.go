@@ -114,24 +114,29 @@ func (t *SchemaTool) describe(ctx context.Context, table string) (*tools.Result,
 	t.session.RLock()
 	defer t.session.RUnlock()
 
-	// DESCRIBE <table> returns the column list. We use Query rather than
-	// stitching DESCRIBE-of-DESCRIBE — runtime.Query already DESCRIBEs
-	// the SQL we hand it for type fidelity, which is fine here since
-	// the inner DESCRIBE returns string columns.
-	sql := fmt.Sprintf("DESCRIBE %s", quoteIdent(table))
+	// information_schema.columns rather than DESCRIBE so the DESCRIBE
+	// pre-pass in runtime.Query works (DESCRIBE-of-DESCRIBE is invalid)
+	// and the column order is stable. The query supports schema-
+	// qualified names like "main.foo" by splitting on the dot.
+	schema, name := splitSchema(table)
+	sql := fmt.Sprintf(
+		`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s'`+
+			` AND table_schema = '%s' ORDER BY ordinal_position`,
+		escapeLiteral(name), escapeLiteral(schema))
+
 	res, err := t.runtime.Query(ctx, duck.QueryOptions{
-		Database:     t.session.Path,
-		SQL:          sql,
-		SkipDescribe: true, // DESCRIBE-of-DESCRIBE is invalid
+		Database: t.session.Path,
+		SQL:      sql,
 	})
 	if err != nil {
 		return errResult(formatRuntimeErr("describe", err)), nil
 	}
+	if len(res.Rows) == 0 {
+		msg := fmt.Sprintf("Table %q not found in the local DuckDB session.", table)
+		return errResult(msg), nil
+	}
 
 	cols := make([]duck.Column, 0, len(res.Rows))
-	// Output of `DESCRIBE` columns: column_name, column_type, null, key,
-	// default, extra. We only surface name + type — the rest is
-	// noise for v1.
 	for _, row := range res.Rows {
 		if len(row) < 2 {
 			continue
@@ -140,6 +145,23 @@ func (t *SchemaTool) describe(ctx context.Context, table string) (*tools.Result,
 	}
 	display, content := renderColumnList(table, cols)
 	return &tools.Result{Content: content, Display: display}, nil
+}
+
+// splitSchema parses an optional schema qualifier. "foo" → ("main", "foo");
+// "schema.foo" → ("schema", "foo"). validateIdentifier already rejected
+// names with more than one dot or any non-allowlisted character.
+func splitSchema(s string) (schema, name string) {
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		return s[:i], s[i+1:]
+	}
+	return "main", s
+}
+
+// escapeLiteral doubles single quotes so an identifier can be embedded
+// in a string literal. validateIdentifier has already restricted the
+// character set, so this is belt-and-braces against future inputs.
+func escapeLiteral(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 func (t *SchemaTool) sample(ctx context.Context, table string, limit int) (*tools.Result, error) {
