@@ -65,12 +65,17 @@ func (c *Client) Query(ctx context.Context, opts QueryOptions) (*QueryResult, er
 	}
 	defer cleanup()
 
-	cols, descWarnings, err := c.runDescribe(ctx, opts.Database, initPath, opts.SQL)
-	if err != nil {
-		return nil, err
+	var cols []Column
+	var descWarnings []string
+	if !opts.SkipDescribe {
+		var err error
+		cols, descWarnings, err = c.runDescribe(ctx, opts.Database, initPath, opts.SQL)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	rows, dataWarnings, err := c.runJSONQuery(ctx, opts.Database, initPath, opts.SQL, cols)
+	rows, cols, dataWarnings, err := c.runJSONQuery(ctx, opts.Database, initPath, opts.SQL, cols)
 	if err != nil {
 		return nil, err
 	}
@@ -139,17 +144,27 @@ func (c *Client) runDescribe(ctx context.Context, db, initPath, sql string) ([]C
 // runJSONQuery executes the actual SELECT and decodes -json output.
 // Cell values are stringified using a canonical-form rule so the render
 // and LLM-content paths can both consume them without further casting.
-func (c *Client) runJSONQuery(ctx context.Context, db, initPath, sql string, cols []Column) ([][]string, []string, error) {
+//
+// When cols is nil (SkipDescribe path), we infer columns from the first
+// row's key set in JSON-decode order. Stable ordering is best-effort —
+// DuckDB's -json output preserves insertion order in Go's json package
+// for object iteration only via UseNumber decoding into json.RawMessage,
+// so we fall back to scanning all keys across all rows if needed.
+func (c *Client) runJSONQuery(ctx context.Context, db, initPath, sql string, cols []Column) ([][]string, []Column, []string, error) {
 	stdout, stderr, err := c.run(ctx, db, initPath, sql, true)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(stdout))
 	dec.UseNumber()
 	var raw []map[string]any
 	if err := dec.Decode(&raw); err != nil {
-		return nil, nil, fmt.Errorf("decode query output: %w (stderr: %s)", err, tail(string(stderr), 256))
+		return nil, nil, nil, fmt.Errorf("decode query output: %w (stderr: %s)", err, tail(string(stderr), 256))
+	}
+
+	if cols == nil {
+		cols = inferColumns(raw)
 	}
 
 	rows := make([][]string, len(raw))
@@ -160,7 +175,26 @@ func (c *Client) runJSONQuery(ctx context.Context, db, initPath, sql string, col
 		}
 		rows[i] = row
 	}
-	return rows, collectWarnings(nil, stderr), nil
+	return rows, cols, collectWarnings(nil, stderr), nil
+}
+
+// inferColumns derives a Column list from JSON-decoded rows when
+// SkipDescribe meant we did not call DESCRIBE up front. Order is
+// determined by first-seen-key, scanning all rows so a NULL in the
+// first row does not hide a column. Type is left empty — callers that
+// need types should not skip the DESCRIBE pre-pass.
+func inferColumns(raw []map[string]any) []Column {
+	seen := make(map[string]bool)
+	var cols []Column
+	for _, m := range raw {
+		for k := range m {
+			if !seen[k] {
+				seen[k] = true
+				cols = append(cols, Column{Name: k})
+			}
+		}
+	}
+	return cols
 }
 
 // run shells out to the duckdb CLI with the given SQL on -c.

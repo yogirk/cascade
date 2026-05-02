@@ -37,6 +37,17 @@ type QueryOptions struct {
 	// MaxRows truncates the result to at most this many rows after
 	// materialization. 0 disables truncation.
 	MaxRows int
+
+	// SkipDescribe disables the DESCRIBE pre-pass. The default behavior
+	// runs DESCRIBE <SQL> first to capture authoritative column types
+	// and rescue BIGINT > 2^53 / DECIMAL / TIMESTAMP precision from
+	// JSON's lossy serialization. That only works for SELECT-shaped
+	// statements; DuckDB rejects `DESCRIBE SHOW TABLES`. Callers that
+	// know they're issuing a read-only-but-non-SELECT statement (SHOW,
+	// PRAGMA, DESCRIBE itself) set this and accept that all cells come
+	// back as strings, which is fine — those statements return string
+	// columns by nature.
+	SkipDescribe bool
 }
 
 // ExecOptions describes a DDL/DML request.
