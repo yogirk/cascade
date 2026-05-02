@@ -9,9 +9,9 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 
-	bq "github.com/yogirk/cascade/internal/bigquery"
-	"github.com/yogirk/cascade/internal/schema"
-	"github.com/yogirk/cascade/internal/tui/themes"
+	bq "github.com/slokam-ai/cascade/internal/bigquery"
+	"github.com/slokam-ai/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // Palette accessors. Built per-call from the live palette so BQ renderers

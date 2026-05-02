@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/internal/tools/core"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/internal/tools/core"
 )
 
 // Compile-time interface checks: all 6 core tools implement tools.Tool.
@@ -462,6 +462,10 @@ func TestClassifyBashRisk_DestructiveCommands(t *testing.T) {
 		{"echo hello > file", permission.RiskDestructive},
 		{"cat data >> log", permission.RiskDestructive},
 		{"unknown_command", permission.RiskDestructive},
+		// gcloud auth print-access-token emits a live OAuth bearer token —
+		// must NOT be classified as read-only, otherwise the LLM can
+		// auto-execute it and exfiltrate the credential.
+		{"gcloud auth print-access-token", permission.RiskDestructive},
 	}
 
 	for _, tc := range cases {

@@ -13,9 +13,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/app"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/app"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -410,7 +410,7 @@ func TestModeBadge(t *testing.T) {
 }
 
 func TestWelcomeView(t *testing.T) {
-	w := NewWelcomeModel(permission.ModeAsk, "my-project", []string{"hacker_news"}, "0.3.2.0")
+	w := NewWelcomeModel(permission.ModeAsk, "my-project", []string{"hacker_news"}, "0.4.0.0")
 	w.SetSize(100, 30)
 	view := w.View()
 	if !containsStr(view, "Cascade") {
@@ -424,6 +424,26 @@ func TestWelcomeView(t *testing.T) {
 	}
 	if !containsStr(view, "/help") {
 		t.Error("welcome should contain /help hint")
+	}
+}
+
+func TestRenderCascadeLogoFootprint(t *testing.T) {
+	logo := renderCascadeLogo()
+	lines := strings.Split(logo, "\n")
+	// 3 tile rows interleaved with 2 blank "groove" rows = 5 lines total.
+	if got := len(lines); got != 5 {
+		t.Fatalf("renderCascadeLogo() produced %d rows, want 5", got)
+	}
+	// Tile rows (even indices): 4 tiles × 2 cells + 3 gaps × 2 cells = 14 cells.
+	// Groove rows (odd indices): empty.
+	for i, line := range lines {
+		want := 14
+		if i%2 == 1 {
+			want = 0
+		}
+		if got := lipgloss.Width(line); got != want {
+			t.Fatalf("renderCascadeLogo() row %d width = %d, want %d", i, got, want)
+		}
 	}
 }
 
@@ -1221,13 +1241,13 @@ func TestHandleKey_VisibleConfirmConsumesInputEvenIfStateDrifts(t *testing.T) {
 	resp := make(chan types.ApprovalDecision, 1)
 
 	m := Model{
-		input:          NewInputModel(),
-		status:         NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
-		spinner:        NewSpinnerModel(),
-		confirm:        NewConfirmModel(),
-		width:          120,
-		height:         30,
-		state:          StateIdle,
+		input:           NewInputModel(),
+		status:          NewStatusModel("gemini-2.5-pro", permission.ModeAsk),
+		spinner:         NewSpinnerModel(),
+		confirm:         NewConfirmModel(),
+		width:           120,
+		height:          30,
+		state:           StateIdle,
 		preConfirmState: StateToolExecuting,
 	}
 	m.confirm.Show("write_file", []byte(`{"file_path":"/tmp/test.txt","content":"hello"}`), "DML", resp)
@@ -1271,7 +1291,7 @@ func TestConfirmOptionsAlignDescriptions(t *testing.T) {
 	}
 
 	firstGap := strings.Index(actionLines[0], "Run this exact action now")
-	secondGap := strings.Index(actionLines[1], "Skip future prompts for this tool until you exit")
+	secondGap := strings.Index(actionLines[1], "Allow ALL future invocations of this tool until you exit")
 	thirdGap := strings.Index(actionLines[2], "Block this action")
 	if firstGap == -1 || secondGap == -1 || thirdGap == -1 {
 		t.Fatal("expected action descriptions to be present")

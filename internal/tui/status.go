@@ -10,7 +10,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // StatusModel renders the status bar at the bottom of the TUI.

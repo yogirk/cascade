@@ -11,11 +11,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/yogirk/cascade/internal/app"
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/oneshot"
-	"github.com/yogirk/cascade/internal/persist"
-	"github.com/yogirk/cascade/internal/tui"
+	"github.com/slokam-ai/cascade/internal/app"
+	"github.com/slokam-ai/cascade/internal/config"
+	"github.com/slokam-ai/cascade/internal/oneshot"
+	"github.com/slokam-ai/cascade/internal/persist"
+	"github.com/slokam-ai/cascade/internal/tui"
 )
 
 var version = "dev" // set at build time via -ldflags from VERSION file

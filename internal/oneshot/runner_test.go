@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // TestEventProcessing_Tokens verifies that TokenEvents are written to stdout.

@@ -1,6 +1,6 @@
 package tui
 
-import bq "github.com/yogirk/cascade/internal/bigquery"
+import bq "github.com/slokam-ai/cascade/internal/bigquery"
 
 // costTrackerAdapter adapts bigquery.CostTracker to the CostTrackerView interface.
 // This avoids exposing bigquery types in the TUI layer.

@@ -1,4 +1,4 @@
-module github.com/yogirk/cascade
+module github.com/slokam-ai/cascade
 
 go 1.26.1
 

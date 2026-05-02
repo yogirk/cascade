@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tools"
 )
 
 type bashInput struct {
@@ -153,7 +153,11 @@ func isReadOnlyGCloud(args []string) bool {
 	case "projects":
 		return len(args) >= 2 && (args[1] == "describe" || args[1] == "list")
 	case "auth":
-		return len(args) >= 2 && (args[1] == "list" || args[1] == "print-access-token")
+		// `gcloud auth print-access-token` emits a live OAuth bearer token;
+		// it must NOT be on the read-only allowlist or the LLM could
+		// auto-execute it and exfiltrate the credential through a follow-up
+		// tool call. Only `gcloud auth list` (no secret material) is safe.
+		return len(args) >= 2 && args[1] == "list"
 	default:
 		return false
 	}

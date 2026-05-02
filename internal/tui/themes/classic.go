@@ -55,10 +55,12 @@ var Classic = Theme{
 		CascadeBright: lipgloss.Color("#38BDF8"),
 		CascadePeak:   lipgloss.Color("#7DD3FC"),
 
-		// Welcome logo bars
-		CascadeBg1: lipgloss.Color("#0369A1"),
+		// Welcome logo cascade — sky-800 → sky-500 → sky-300 spans a wider
+		// lightness range than the original 700/500/400 cluster, giving the
+		// 4×3 grid a visible cascade gradient on dark backgrounds.
+		CascadeBg1: lipgloss.Color("#075985"),
 		CascadeBg2: lipgloss.Color("#0EA5E9"),
-		CascadeBg3: lipgloss.Color("#38BDF8"),
+		CascadeBg3: lipgloss.Color("#7DD3FC"),
 	},
 
 	Light: Palette{

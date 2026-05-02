@@ -3,7 +3,7 @@ package tui
 import (
 	"charm.land/glamour/v2/ansi"
 
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // cascadeMarkdownStyle builds a Glamour StyleConfig from the currently

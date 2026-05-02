@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/yogirk/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/platform"
 	"google.golang.org/api/iterator"
 )
 

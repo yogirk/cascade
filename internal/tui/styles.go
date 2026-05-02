@@ -7,8 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // isDarkBg indicates whether the terminal has a dark background.
@@ -159,9 +159,12 @@ var (
 	gBright lipgloss.Style
 	gDim    lipgloss.Style
 
-	cascadeBg1 lipgloss.Style
-	cascadeBg2 lipgloss.Style
-	cascadeBg3 lipgloss.Style
+	// Raw colors for the welcome logo — renderCascadeLogo applies these
+	// as foregrounds on full-block tiles. Three tiers let the scatter
+	// suggest a cascade flow rather than a binary dim/bright contrast.
+	cascadeBg1Color color.Color
+	cascadeBg2Color color.Color
+	cascadeBg3Color color.Color
 )
 
 // Pre-computed badge strings (avoid allocating styles on every render).
@@ -396,9 +399,9 @@ func initPalette() {
 	gBright = lipgloss.NewStyle().Foreground(brightColor)
 	gDim = lipgloss.NewStyle().Foreground(dimTextColor)
 
-	cascadeBg1 = lipgloss.NewStyle().Background(p.CascadeBg1)
-	cascadeBg2 = lipgloss.NewStyle().Background(p.CascadeBg2)
-	cascadeBg3 = lipgloss.NewStyle().Background(p.CascadeBg3)
+	cascadeBg1Color = p.CascadeBg1
+	cascadeBg2Color = p.CascadeBg2
+	cascadeBg3Color = p.CascadeBg3
 
 	// ── Pre-computed badges ──
 	riskReadBadge = lipgloss.NewStyle().Foreground(successColor).Render("[READ]")

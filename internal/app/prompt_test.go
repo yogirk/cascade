@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/schema"
 )
 
 func TestBuildRequestContext_UsesRelevantSchema(t *testing.T) {

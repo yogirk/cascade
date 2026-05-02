@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // TestSetTheme_BackCompat verifies that old "light"/"dark"/"auto" values

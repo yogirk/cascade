@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/yogirk/cascade/internal/app"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/app"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // Run executes a one-shot conversation: sends the prompt to the agent, streams

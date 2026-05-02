@@ -4,7 +4,7 @@ package persist
 import (
 	"time"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // SessionMeta holds session metadata without message content.

@@ -8,10 +8,10 @@ import (
 
 	gcbq "cloud.google.com/go/bigquery"
 
-	bq "github.com/yogirk/cascade/internal/bigquery"
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/pkg/types"
+	bq "github.com/slokam-ai/cascade/internal/bigquery"
+	"github.com/slokam-ai/cascade/internal/config"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 type mockQueryClient struct {

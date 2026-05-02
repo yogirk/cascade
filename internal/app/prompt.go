@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/config"
+	"github.com/slokam-ai/cascade/internal/schema"
 )
 
-const baseSystemPrompt = `You are Cascade, an AI-native terminal agent for GCP data engineering, built by @yogirk. You help users diagnose pipeline failures, investigate costs, write queries, and manage their GCP data stack through conversational interaction.
+const baseSystemPrompt = `You are Cascade, an AI-native terminal agent for GCP data engineering, built by rk@slokam-ai. You help users diagnose pipeline failures, investigate costs, write queries, and manage their GCP data stack through conversational interaction.
 
 ## Tool Usage
 

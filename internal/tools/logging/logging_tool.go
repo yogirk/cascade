@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/logging/logadmin"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tools"
 	"google.golang.org/api/iterator"
 )
 

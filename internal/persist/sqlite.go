@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/pkg/types"
 	_ "modernc.org/sqlite"
 )
 

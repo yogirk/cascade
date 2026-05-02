@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/yogirk/cascade/internal/config"
-	plat "github.com/yogirk/cascade/internal/platform"
-	"github.com/yogirk/cascade/internal/platform/collectors"
+	"github.com/slokam-ai/cascade/internal/config"
+	plat "github.com/slokam-ai/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/platform/collectors"
 )
 
 // buildMorningCollector assembles signal collectors from available platform components.

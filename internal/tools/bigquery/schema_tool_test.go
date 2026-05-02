@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/schema"
 )
 
 func TestSchemaToolName(t *testing.T) {

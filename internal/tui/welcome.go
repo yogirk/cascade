@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // WelcomeModel renders the welcome banner when the chat is empty.
@@ -43,29 +43,67 @@ func (w *WelcomeModel) SetSize(width, height int) {
 }
 
 // Welcome banner styles (gBlue, gRed, gYellow, gGreen, gBright, gDim,
-// cascadeBg1-4) are defined in styles.go and initialized adaptively
+// cascadeBg1-3) are defined in styles.go and initialized adaptively
 // for light/dark terminals via initPalette().
 
-// renderCascadeLogo renders the Cascade logo — four bars stepping
-// right, each a pipeline stage.
+// renderCascadeLogo renders the Cascade logo — a 4×3 grid (4 columns,
+// 3 rows) of square tiles painted with three brightness tiers in the
+// Slokam dialect, theme-reactive via cascadeBg1Color (dim),
+// cascadeBg2Color (mid), and cascadeBg3Color (bright). The pattern
+// favours brighter tiles on the upper-left and dimmer tiles on the
+// lower-right, suggesting a cascade catching light at the lip and
+// fading as the water disperses.
+//
+// Each tile is a 2-char-wide full-block pair (██) — terminal cells are
+// roughly 1:2 (width:height), so two cells side-by-side approximate a
+// square. A 2-cell horizontal gap matches the visual thickness of the
+// 1-line vertical gap (since 1 line ≈ 2 cell-widths), giving the logo
+// equal grooves in both axes. Total footprint: 5 lines × 14 cells →
+// 14 × 10 cell-widths → landscape rectangle (wider than tall).
 func renderCascadeLogo() string {
-	const px = " " // 1-space pixel unit
-
-	b1 := cascadeBg1.Render
-	b2 := cascadeBg2.Render
-	b3 := cascadeBg3.Render
-
-	bar := func(render func(...string) string, n int) string {
-		return render(strings.Repeat(px, n))
+	// 4 cols × 3 rows scatter — values map to brightness tiers:
+	//   1 = dim   (cascadeBg1Color)
+	//   2 = mid   (cascadeBg2Color)
+	//   3 = bright (cascadeBg3Color)
+	// The diagonal bias (more 3s top-left, more 1s bottom-right) is what
+	// gives the eye a sense of cascade direction.
+	pattern := [3][4]int{
+		{3, 3, 2, 1},
+		{2, 3, 3, 2},
+		{1, 2, 3, 3},
 	}
-	pad := func(n int) string { return strings.Repeat(px, n) }
 
-	lines := []string{
-		pad(0) + bar(b1, 5),
-		pad(1) + bar(b2, 5),
-		pad(2) + bar(b3, 5),
+	tier := [4]lipgloss.Style{
+		{}, // index 0 unused — pattern values start at 1
+		lipgloss.NewStyle().Foreground(cascadeBg1Color),
+		lipgloss.NewStyle().Foreground(cascadeBg2Color),
+		lipgloss.NewStyle().Foreground(cascadeBg3Color),
 	}
-	return strings.Join(lines, "\n")
+
+	const tile = "██"
+	const hgap = "  "
+
+	rowLines := make([]string, 3)
+	for r := 0; r < 3; r++ {
+		var b strings.Builder
+		for c := 0; c < 4; c++ {
+			if c > 0 {
+				b.WriteString(hgap)
+			}
+			b.WriteString(tier[pattern[r][c]].Render(tile))
+		}
+		rowLines[r] = b.String()
+	}
+
+	// Interleave a blank line between rows for the vertical "groove."
+	out := make([]string, 0, 3*2-1)
+	for i, line := range rowLines {
+		if i > 0 {
+			out = append(out, "")
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // -- View --
@@ -76,7 +114,7 @@ func (w WelcomeModel) View() string {
 	dim := gDim
 	labelStyle := dim.Bold(true)
 
-	// === Left panel: logo vertically centered ===
+	// === Logo content (rendering happens after we know right-panel height) ===
 	leftContent := renderCascadeLogo()
 
 	// Panel widths adapt to terminal
@@ -87,14 +125,11 @@ func (w WelcomeModel) View() string {
 	if totalW > 90 {
 		totalW = 90
 	}
-	leftW := totalW * 20 / 100
+	// Fixed-width left panel sized for the 14-cell rubik-cube grid logo
+	// (4 tiles × 2 cells + 3 gaps × 2 cells) plus 3 cells of breathing
+	// room on each side. Right panel takes the rest.
+	leftW := 20
 	rightW := totalW - leftW
-
-	leftStyle := lipgloss.NewStyle().
-		Width(leftW).
-		Padding(1, 2, 1, 4)
-
-	leftPanel := leftStyle.Render(leftContent)
 
 	// === Right panel: connection status ===
 	warnStyle := lipgloss.NewStyle().Foreground(warningColor)
@@ -138,8 +173,23 @@ func (w WelcomeModel) View() string {
 
 	rightPanel := rightStyle.Render(rightContent)
 
-	// === Compose panels horizontally (Center aligns logo vertically with right content) ===
-	body := lipgloss.JoinHorizontal(lipgloss.Center, leftPanel, rightPanel)
+	// === Left panel: match the right panel's height and center the logo
+	// vertically inside it. This keeps the logo visually anchored at the
+	// midpoint of the welcome banner regardless of how many rows the right
+	// panel ends up needing (auth warning, dataset list, etc.). ===
+	leftStyle := lipgloss.NewStyle().
+		Width(leftW).
+		Height(lipgloss.Height(rightPanel)).
+		Padding(0, 3).
+		AlignVertical(lipgloss.Center).
+		AlignHorizontal(lipgloss.Center)
+
+	leftPanel := leftStyle.Render(leftContent)
+
+	// === Compose panels horizontally — Top is fine here because the left
+	// panel was sized to match right; vertical centering happens inside
+	// the left box, not at the join. ===
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 	bodyW := lipgloss.Width(body)
 
 	// === Title line ===

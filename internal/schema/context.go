@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	bq "github.com/yogirk/cascade/internal/bigquery"
+	bq "github.com/slokam-ai/cascade/internal/bigquery"
 )
 
 // BuildSchemaContext searches the cache for tables matching the query and

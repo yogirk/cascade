@@ -3,7 +3,7 @@ package bigquery
 import (
 	"strings"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // ClassifySQLRisk classifies the risk level of a SQL statement by parsing
@@ -35,6 +35,15 @@ func ClassifySQLRisk(sql string) permission.RiskLevel {
 }
 
 // classifyKeyword classifies the risk from the leading SQL keyword.
+//
+// Statements not enumerated below intentionally fall through to
+// RiskDestructive. This covers BigQuery scripting constructs (CALL,
+// BEGIN ... END, EXECUTE IMMEDIATE) whose effects depend on the body of
+// the procedure or script — we cannot statically prove they are read-only
+// without a full SQL parser, so the safe default is to force confirmation.
+// Do NOT add any of these to the read-only branch without a parser that
+// can analyse the procedure body — that would open a permission-bypass
+// path.
 func classifyKeyword(upper string) permission.RiskLevel {
 	switch {
 	case hasAnyPrefix(upper, "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH"):
