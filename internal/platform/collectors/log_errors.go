@@ -10,7 +10,7 @@ import (
 
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/logging/logadmin"
-	"github.com/yogirk/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/platform"
 	"google.golang.org/api/iterator"
 )
 

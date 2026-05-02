@@ -13,13 +13,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/app"
-	plat "github.com/yogirk/cascade/internal/platform"
-	"github.com/yogirk/cascade/internal/provider"
-	bqrender "github.com/yogirk/cascade/internal/tools/bigquery"
-	logtool "github.com/yogirk/cascade/internal/tools/logging"
-	"github.com/yogirk/cascade/internal/tui/themes"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/app"
+	plat "github.com/slokam-ai/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/provider"
+	bqrender "github.com/slokam-ai/cascade/internal/tools/bigquery"
+	logtool "github.com/slokam-ai/cascade/internal/tools/logging"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // validModelName matches model identifiers like "gemini-2.5-pro" or "models/gemini-2.5-flash".

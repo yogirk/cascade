@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/logging/logadmin"
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // ---------------------------------------------------------------------------

@@ -6,11 +6,11 @@ import (
 
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/storage"
-	"github.com/yogirk/cascade/internal/auth"
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/tools"
-	gcstool "github.com/yogirk/cascade/internal/tools/gcs"
-	logtool "github.com/yogirk/cascade/internal/tools/logging"
+	"github.com/slokam-ai/cascade/internal/auth"
+	"github.com/slokam-ai/cascade/internal/config"
+	"github.com/slokam-ai/cascade/internal/tools"
+	gcstool "github.com/slokam-ai/cascade/internal/tools/gcs"
+	logtool "github.com/slokam-ai/cascade/internal/tools/logging"
 	"google.golang.org/api/option"
 )
 

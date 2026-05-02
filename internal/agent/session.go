@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/yogirk/cascade/pkg/types"
+import "github.com/slokam-ai/cascade/pkg/types"
 
 // Session tracks conversation history for multi-turn context.
 type Session struct {

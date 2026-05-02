@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // Tool defines the interface that all tools must implement.

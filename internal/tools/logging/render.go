@@ -8,7 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // severityColor maps a log severity string to a theme-aware color. Severity

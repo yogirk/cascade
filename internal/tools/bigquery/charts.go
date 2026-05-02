@@ -8,7 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // sparkBlocks are the Unicode block characters for sparkline rendering (8 levels).

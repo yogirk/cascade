@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/storage"
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // ---------------------------------------------------------------------------

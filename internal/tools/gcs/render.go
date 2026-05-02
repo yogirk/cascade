@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"cloud.google.com/go/storage"
 
-	"github.com/yogirk/cascade/internal/tui/themes"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // Styles for GCS rendering. Built per-call from the live palette.

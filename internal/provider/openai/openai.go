@@ -15,8 +15,8 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/provider"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // OpenAIProvider wraps the OpenAI client behind the Provider interface.

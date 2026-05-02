@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/bigquery"
-	"github.com/yogirk/cascade/internal/auth"
-	bq "github.com/yogirk/cascade/internal/bigquery"
-	"github.com/yogirk/cascade/internal/config"
-	"github.com/yogirk/cascade/internal/schema"
-	"github.com/yogirk/cascade/internal/tools"
-	bqtools "github.com/yogirk/cascade/internal/tools/bigquery"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/auth"
+	bq "github.com/slokam-ai/cascade/internal/bigquery"
+	"github.com/slokam-ai/cascade/internal/config"
+	"github.com/slokam-ai/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/tools"
+	bqtools "github.com/slokam-ai/cascade/internal/tools/bigquery"
+	"github.com/slokam-ai/cascade/pkg/types"
 	"google.golang.org/api/iterator"
 )
 

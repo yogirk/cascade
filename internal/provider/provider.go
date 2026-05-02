@@ -6,7 +6,7 @@ package provider
 import (
 	"context"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // Provider abstracts LLM backends. Gemini is the default implementation.

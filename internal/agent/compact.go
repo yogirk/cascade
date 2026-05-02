@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/provider"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 const compactionPrompt = `Summarize the conversation so far into a concise context summary. Preserve these details exactly:

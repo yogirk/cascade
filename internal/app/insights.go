@@ -8,9 +8,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	bq "github.com/yogirk/cascade/internal/bigquery"
-	bqtools "github.com/yogirk/cascade/internal/tools/bigquery"
-	"github.com/yogirk/cascade/internal/tui/themes"
+	bq "github.com/slokam-ai/cascade/internal/bigquery"
+	bqtools "github.com/slokam-ai/cascade/internal/tools/bigquery"
+	"github.com/slokam-ai/cascade/internal/tui/themes"
 )
 
 // Styles for insights report rendering.

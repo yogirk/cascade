@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/pkg/types"
 	"google.golang.org/genai"
 )
 

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	udiff "github.com/aymanbagabas/go-udiff"
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tools"
 )
 
 type editInput struct {

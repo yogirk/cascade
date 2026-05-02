@@ -3,7 +3,7 @@ package bigquery
 import (
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 func TestClassifySQLRisk(t *testing.T) {

@@ -1,6 +1,6 @@
 package bigquery
 
-import "github.com/yogirk/cascade/internal/tools"
+import "github.com/slokam-ai/cascade/internal/tools"
 
 // RegisterAll registers all BigQuery tools with the given registry.
 // Unlike core.RegisterAll which creates tools internally, BQ tools require

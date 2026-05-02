@@ -67,12 +67,12 @@ Cascade is a conversational CLI that understands your data warehouse schema, pip
 
 ```bash
 # From source
-git clone https://github.com/yogirk/cascade.git
+git clone https://github.com/slokam-ai/cascade.git
 cd cascade
 make build
 
 # Or install directly
-go install github.com/yogirk/cascade/cmd/cascade@latest
+go install github.com/slokam-ai/cascade/cmd/cascade@latest
 ```
 
 ### Run

@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/provider"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // ---- Interface compliance ----

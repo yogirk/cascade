@@ -3,7 +3,7 @@ package bigquery
 import (
 	"strings"
 
-	"github.com/yogirk/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/permission"
 )
 
 // ClassifySQLRisk classifies the risk level of a SQL statement by parsing

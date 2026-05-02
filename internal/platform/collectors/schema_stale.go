@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/yogirk/cascade/internal/platform"
-	"github.com/yogirk/cascade/internal/schema"
+	"github.com/slokam-ai/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/schema"
 )
 
 // SchemaStaleCollector detects tables whose schema cache entries are stale.

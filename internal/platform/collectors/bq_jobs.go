@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yogirk/cascade/internal/bigquery"
-	"github.com/yogirk/cascade/internal/platform"
+	"github.com/slokam-ai/cascade/internal/bigquery"
+	"github.com/slokam-ai/cascade/internal/platform"
 )
 
 // BQJobCollector collects failed BigQuery job signals from INFORMATION_SCHEMA.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 func openTestStore(t *testing.T) *SQLiteStore {

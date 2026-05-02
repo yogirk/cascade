@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/internal/tools/core"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/internal/tools/core"
 )
 
 // Compile-time interface checks: all 6 core tools implement tools.Tool.

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yogirk/cascade/internal/permission"
-	"github.com/yogirk/cascade/internal/provider"
-	"github.com/yogirk/cascade/internal/tools"
-	"github.com/yogirk/cascade/pkg/types"
+	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/provider"
+	"github.com/slokam-ai/cascade/internal/tools"
+	"github.com/slokam-ai/cascade/pkg/types"
 )
 
 // --- Test helpers ---
