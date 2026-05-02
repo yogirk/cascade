@@ -1291,7 +1291,7 @@ func TestConfirmOptionsAlignDescriptions(t *testing.T) {
 	}
 
 	firstGap := strings.Index(actionLines[0], "Run this exact action now")
-	secondGap := strings.Index(actionLines[1], "Skip future prompts for this tool until you exit")
+	secondGap := strings.Index(actionLines[1], "Allow ALL future invocations of this tool until you exit")
 	thirdGap := strings.Index(actionLines[2], "Block this action")
 	if firstGap == -1 || secondGap == -1 || thirdGap == -1 {
 		t.Fatal("expected action descriptions to be present")

@@ -185,7 +185,7 @@ type confirmOption struct {
 
 var confirmOptions = []confirmOption{
 	{label: "Allow once", description: "Run this exact action now", action: types.ApprovalAllowOnce},
-	{label: "Allow tool for session", description: "Skip future prompts for this tool until you exit", action: types.ApprovalAllowToolSession},
+	{label: "Allow tool for session", description: "Allow ALL future invocations of this tool until you exit", action: types.ApprovalAllowToolSession},
 	{label: "Deny", description: "Block this action", action: types.ApprovalDeny},
 }
 

@@ -462,6 +462,10 @@ func TestClassifyBashRisk_DestructiveCommands(t *testing.T) {
 		{"echo hello > file", permission.RiskDestructive},
 		{"cat data >> log", permission.RiskDestructive},
 		{"unknown_command", permission.RiskDestructive},
+		// gcloud auth print-access-token emits a live OAuth bearer token —
+		// must NOT be classified as read-only, otherwise the LLM can
+		// auto-execute it and exfiltrate the credential.
+		{"gcloud auth print-access-token", permission.RiskDestructive},
 	}
 
 	for _, tc := range cases {
