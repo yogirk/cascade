@@ -45,6 +45,13 @@ func TestClassifySQLRisk(t *testing.T) {
 		// Destructive
 		{"drop table", "DROP TABLE t", permission.RiskDestructive},
 		{"truncate table", "TRUNCATE TABLE t", permission.RiskDestructive},
+		// Scripting / procedure constructs MUST fall through to destructive —
+		// we can't analyse the body without a real parser, so the safe
+		// default is to force confirmation. Pinned so future maintainers
+		// don't accidentally add these to the read-only branch.
+		{"call procedure", "CALL my_dataset.my_proc()", permission.RiskDestructive},
+		{"begin script", "BEGIN INSERT INTO t SELECT * FROM s; END", permission.RiskDestructive},
+		{"execute immediate", "EXECUTE IMMEDIATE 'DROP TABLE t'", permission.RiskDestructive},
 
 		// Admin
 		{"grant", "GRANT SELECT ON t TO user", permission.RiskAdmin},
