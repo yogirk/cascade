@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,9 +15,10 @@ import (
 )
 
 type schemaInput struct {
-	Action string `json:"action"`         // list_tables | describe | sample
-	Table  string `json:"table,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Action   string `json:"action"`         // list_tables | describe | sample
+	Database string `json:"database,omitempty"`
+	Table    string `json:"table,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
 // SchemaTool is the read-only counterpart to query_tool: it lists and
@@ -39,7 +42,9 @@ func NewSchemaTool(runtime duck.Runtime, session *duck.Session) *SchemaTool {
 func (t *SchemaTool) Name() string { return "duckdb_schema" }
 
 func (t *SchemaTool) Description() string {
-	return "Inspect the local DuckDB session: list tables, describe a table's columns, or sample rows from a table. Read-only. Use this after bq_to_duckdb to confirm a table landed and to peek at its shape before writing queries."
+	return "Inspect a DuckDB database: list tables, describe a table's columns, or sample rows. Read-only. " +
+		"By default operates on the per-session DB; pass database='/path/to/your.duckdb' to inspect an existing file. " +
+		"Use this after bq_to_duckdb to confirm a table landed and to peek at its shape before writing queries."
 }
 
 func (t *SchemaTool) InputSchema() map[string]any {
@@ -50,6 +55,10 @@ func (t *SchemaTool) InputSchema() map[string]any {
 				"type":        "string",
 				"enum":        []string{"list_tables", "describe", "sample"},
 				"description": "What to inspect.",
+			},
+			"database": map[string]any{
+				"type":        "string",
+				"description": "Optional path to a .duckdb file. Default: the per-session DB.",
 			},
 			"table": map[string]any{
 				"type":        "string",
@@ -75,28 +84,55 @@ func (t *SchemaTool) Execute(ctx context.Context, input json.RawMessage) (*tools
 		return errResult("DuckDB runtime not configured"), nil
 	}
 
+	dbPath, isExternal, err := t.resolveDatabase(p.Database)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+
 	switch p.Action {
 	case "list_tables":
-		return t.listTables(ctx)
+		return t.listTables(ctx, dbPath, isExternal)
 	case "describe":
-		return t.describe(ctx, p.Table)
+		return t.describe(ctx, dbPath, isExternal, p.Table)
 	case "sample":
 		limit := p.Limit
 		if limit <= 0 {
 			limit = 10
 		}
-		return t.sample(ctx, p.Table, limit)
+		return t.sample(ctx, dbPath, isExternal, p.Table, limit)
 	default:
 		return errResult(fmt.Sprintf("unknown action %q (want list_tables, describe, or sample)", p.Action)), nil
 	}
 }
 
-func (t *SchemaTool) listTables(ctx context.Context) (*tools.Result, error) {
-	t.session.RLock()
-	defer t.session.RUnlock()
+// resolveDatabase mirrors QueryTool.resolveDatabase. Empty = session DB
+// (we own its lifecycle); non-empty must exist on disk.
+func (t *SchemaTool) resolveDatabase(database string) (string, bool, error) {
+	if database == "" {
+		return t.session.Path, false, nil
+	}
+	abs, err := filepath.Abs(database)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve database path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", false, fmt.Errorf("database %q does not exist: %w", abs, err)
+	}
+	if info.IsDir() {
+		return "", false, fmt.Errorf("database %q is a directory, expected a .duckdb file", abs)
+	}
+	return abs, abs != t.session.Path, nil
+}
+
+func (t *SchemaTool) listTables(ctx context.Context, dbPath string, isExternal bool) (*tools.Result, error) {
+	if !isExternal {
+		t.session.RLock()
+		defer t.session.RUnlock()
+	}
 
 	res, err := t.runtime.Query(ctx, duck.QueryOptions{
-		Database:     t.session.Path,
+		Database:     dbPath,
 		SQL:          "SHOW TABLES",
 		SkipDescribe: true, // SHOW is not DESCRIBE-able
 	})
@@ -107,12 +143,14 @@ func (t *SchemaTool) listTables(ctx context.Context) (*tools.Result, error) {
 	return &tools.Result{Content: content, Display: display}, nil
 }
 
-func (t *SchemaTool) describe(ctx context.Context, table string) (*tools.Result, error) {
+func (t *SchemaTool) describe(ctx context.Context, dbPath string, isExternal bool, table string) (*tools.Result, error) {
 	if err := validateIdentifier(table); err != nil {
 		return errResult(err.Error()), nil
 	}
-	t.session.RLock()
-	defer t.session.RUnlock()
+	if !isExternal {
+		t.session.RLock()
+		defer t.session.RUnlock()
+	}
 
 	// information_schema.columns rather than DESCRIBE so the DESCRIBE
 	// pre-pass in runtime.Query works (DESCRIBE-of-DESCRIBE is invalid)
@@ -125,14 +163,14 @@ func (t *SchemaTool) describe(ctx context.Context, table string) (*tools.Result,
 		escapeLiteral(name), escapeLiteral(schema))
 
 	res, err := t.runtime.Query(ctx, duck.QueryOptions{
-		Database: t.session.Path,
+		Database: dbPath,
 		SQL:      sql,
 	})
 	if err != nil {
 		return errResult(formatRuntimeErr("describe", err)), nil
 	}
 	if len(res.Rows) == 0 {
-		msg := fmt.Sprintf("Table %q not found in the local DuckDB session.", table)
+		msg := fmt.Sprintf("Table %q not found.", table)
 		return errResult(msg), nil
 	}
 
@@ -164,17 +202,19 @@ func escapeLiteral(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-func (t *SchemaTool) sample(ctx context.Context, table string, limit int) (*tools.Result, error) {
+func (t *SchemaTool) sample(ctx context.Context, dbPath string, isExternal bool, table string, limit int) (*tools.Result, error) {
 	if err := validateIdentifier(table); err != nil {
 		return errResult(err.Error()), nil
 	}
-	t.session.RLock()
-	defer t.session.RUnlock()
+	if !isExternal {
+		t.session.RLock()
+		defer t.session.RUnlock()
+	}
 
 	sql := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoteIdent(table), limit)
 	start := time.Now()
 	res, err := t.runtime.Query(ctx, duck.QueryOptions{
-		Database: t.session.Path,
+		Database: dbPath,
 		SQL:      sql,
 		MaxRows:  limit,
 	})

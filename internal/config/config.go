@@ -122,10 +122,15 @@ type DuckDBConfig struct {
 
 // VolumeGateConfig holds the size thresholds for bq_to_duckdb.
 //
-// Both are bytes. Defaults: warn at 1 GiB, hard-stop at 50 GiB.
+// All values are bytes. Defaults:
+//   - warn_bytes:           1 GiB (informational warning, applies to both modes)
+//   - hard_stop_bytes:     50 GiB (GCS staging path; refuse unless force=true)
+//   - local_hard_stop_bytes: 1 GiB (local stream path; row-by-row CSV
+//     pumping a multi-GiB table is slow and disk-hungry)
 type VolumeGateConfig struct {
-	WarnBytes     int64 `toml:"warn_bytes"`      // soft warning threshold
-	HardStopBytes int64 `toml:"hard_stop_bytes"` // refuse unless force=true
+	WarnBytes          int64 `toml:"warn_bytes"`
+	HardStopBytes      int64 `toml:"hard_stop_bytes"`
+	LocalHardStopBytes int64 `toml:"local_hard_stop_bytes"`
 }
 
 // AgentConfig configures the agent loop behavior.
@@ -209,8 +214,9 @@ func DefaultConfig() Config {
 		},
 		DuckDB: DuckDBConfig{
 			VolumeGate: VolumeGateConfig{
-				WarnBytes:     1 << 30,        // 1 GiB
-				HardStopBytes: 50 * (1 << 30), // 50 GiB
+				WarnBytes:          1 << 30,        // 1 GiB
+				HardStopBytes:      50 * (1 << 30), // 50 GiB
+				LocalHardStopBytes: 1 << 30,        // 1 GiB
 			},
 		},
 	}

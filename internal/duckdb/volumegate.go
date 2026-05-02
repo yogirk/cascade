@@ -53,11 +53,21 @@ type VolumeResult struct {
 // data is real damage, while reading more than expected from local
 // DuckDB self-corrects (the user notices and adjusts).
 //
-// Defaults: warn at 1 GiB, hard-stop at 50 GiB.
+// Two hard stops because the two BQ→DuckDB paths have very different
+// cost curves:
+//   - GCS staging path: BQ shards EXPORT in parallel, DuckDB httpfs
+//     reads efficiently. 50 GiB is uncomfortable but achievable.
+//   - Local stream path: row-by-row through encoding/csv, single
+//     stream. Above ~1 GiB the round-trip stings (CSV is 5-10x
+//     larger than Parquet, and we hold the temp file on disk).
+//
+// Defaults: warn at 1 GiB, GCS hard-stop at 50 GiB, local-stream
+// hard-stop at 1 GiB.
 type VolumeGate struct {
-	WarnBytes     int64
-	HardStopBytes int64
-	Estimator     VolumeEstimator
+	WarnBytes          int64
+	HardStopBytes      int64 // GCS staging hard-stop
+	LocalHardStopBytes int64 // Local stream hard-stop (much smaller)
+	Estimator          VolumeEstimator
 }
 
 // CheckBQExport runs a dry-run against the source SQL and reports a
@@ -70,6 +80,24 @@ type VolumeGate struct {
 // real, so blocking-on-estimation-failure would just chain false
 // negatives.
 func (g *VolumeGate) CheckBQExport(ctx context.Context, sql string, force bool) (VolumeResult, error) {
+	if g == nil {
+		return VolumeResult{Decision: VolumeAllow, Reason: "volume gate not configured"}, nil
+	}
+	return g.check(ctx, sql, force, g.HardStopBytes, "GCS export")
+}
+
+// CheckBQLocal applies the local-stream thresholds. Same Allow/Warn/
+// Block contract as CheckBQExport, just a much smaller hard-stop
+// because we're streaming row-by-row through CSV rather than letting
+// BQ shard a parallel EXPORT.
+func (g *VolumeGate) CheckBQLocal(ctx context.Context, sql string, force bool) (VolumeResult, error) {
+	if g == nil {
+		return VolumeResult{Decision: VolumeAllow, Reason: "volume gate not configured"}, nil
+	}
+	return g.check(ctx, sql, force, g.LocalHardStopBytes, "local stream")
+}
+
+func (g *VolumeGate) check(ctx context.Context, sql string, force bool, hardStop int64, label string) (VolumeResult, error) {
 	if g == nil || g.Estimator == nil {
 		return VolumeResult{Decision: VolumeAllow, Reason: "volume gate not configured"}, nil
 	}
@@ -82,20 +110,20 @@ func (g *VolumeGate) CheckBQExport(ctx context.Context, sql string, force bool) 
 	}
 
 	switch {
-	case g.HardStopBytes > 0 && bytes > g.HardStopBytes && !force:
+	case hardStop > 0 && bytes > hardStop && !force:
 		return VolumeResult{
 			Decision: VolumeBlock,
 			Bytes:    bytes,
 			Reason: fmt.Sprintf(
-				"BQ export would scan %s, above the %s hard stop. Add a WHERE clause, narrow columns, or pass force=true to override.",
-				render.FormatBytes(bytes), render.FormatBytes(g.HardStopBytes),
+				"BQ %s would move %s, above the %s hard stop. Add a WHERE clause, narrow columns, switch to a path with a higher cap, or pass force=true to override.",
+				label, render.FormatBytes(bytes), render.FormatBytes(hardStop),
 			),
 		}, nil
 
 	case g.WarnBytes > 0 && bytes > g.WarnBytes:
-		reason := fmt.Sprintf("BQ export would scan %s (warn threshold %s)",
-			render.FormatBytes(bytes), render.FormatBytes(g.WarnBytes))
-		if force && g.HardStopBytes > 0 && bytes > g.HardStopBytes {
+		reason := fmt.Sprintf("BQ %s would move %s (warn threshold %s)",
+			label, render.FormatBytes(bytes), render.FormatBytes(g.WarnBytes))
+		if force && hardStop > 0 && bytes > hardStop {
 			reason += " — proceeding under force=true"
 		}
 		return VolumeResult{Decision: VolumeWarn, Bytes: bytes, Reason: reason}, nil

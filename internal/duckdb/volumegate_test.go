@@ -96,6 +96,44 @@ func TestVolumeGate_DryRunError_AllowsWithReason(t *testing.T) {
 	}
 }
 
+func TestVolumeGate_LocalHardStopIsTighter(t *testing.T) {
+	// 5 GiB: safely allowed for GCS path, blocked for local stream.
+	g := &VolumeGate{
+		WarnBytes:          1 << 30,
+		HardStopBytes:      50 * (1 << 30),
+		LocalHardStopBytes: 1 << 30,
+		Estimator:          &fakeEstimator{bytes: 5 * (1 << 30)},
+	}
+
+	gcs, err := g.CheckBQExport(t.Context(), "SELECT 1", false)
+	if err != nil {
+		t.Fatalf("CheckBQExport: %v", err)
+	}
+	if gcs.Decision != VolumeWarn {
+		t.Errorf("GCS path on 5 GiB: decision = %v, want VolumeWarn", gcs.Decision)
+	}
+
+	local, err := g.CheckBQLocal(t.Context(), "SELECT 1", false)
+	if err != nil {
+		t.Fatalf("CheckBQLocal: %v", err)
+	}
+	if local.Decision != VolumeBlock {
+		t.Errorf("local path on 5 GiB: decision = %v, want VolumeBlock", local.Decision)
+	}
+	if !contains(local.Reason, "local stream") {
+		t.Errorf("local block message should mention 'local stream', got %q", local.Reason)
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func TestVolumeGate_NilOrUnconfigured_Allows(t *testing.T) {
 	cases := []*VolumeGate{
 		nil,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,9 +31,17 @@ type querySource struct {
 }
 
 type queryInput struct {
-	SQL     string        `json:"sql"`
-	Sources []querySource `json:"sources,omitempty"`
-	MaxRows int           `json:"max_rows,omitempty"`
+	SQL string `json:"sql"`
+	// Database optionally redirects the query to a different .duckdb
+	// file on disk — typically a user's existing file Cascade did not
+	// create. Empty (default) targets the per-session DB. The path is
+	// validated via stat() before the subprocess is spawned, and the
+	// session's RWMutex is *not* held when Database != session.Path —
+	// concurrent users of an external file are not Cascade's
+	// responsibility (DuckDB takes its own OS-level file lock).
+	Database string        `json:"database,omitempty"`
+	Sources  []querySource `json:"sources,omitempty"`
+	MaxRows  int           `json:"max_rows,omitempty"`
 }
 
 // QueryTool runs a SQL query against the local DuckDB session DB and/or
@@ -56,10 +66,12 @@ func NewQueryTool(runtime duck.Runtime, session *duck.Session, gcs *duck.GCSAuth
 func (t *QueryTool) Name() string { return "duckdb_query" }
 
 func (t *QueryTool) Description() string {
-	return "Execute a SQL query against the local DuckDB session DB and/or gs://*.parquet sources via httpfs. " +
-		"For local queries, just pass the sql. To query a Parquet path on GCS without staging, declare a source: " +
+	return "Execute a SQL query against a DuckDB database. " +
+		"By default this is the per-session DB Cascade created at startup; pass database='/path/to/your.duckdb' to point at an existing file. " +
+		"To query a Parquet path on GCS without staging, declare a source: " +
 		`{"alias":"hn","gcs_paths":["gs://b/year=*/file.parquet"]} and reference it in the SQL as ${hn}. ` +
-		"Globs are expanded by Cascade before the SQL runs. Read-only by default; DDL/DML escalate to a confirmation prompt."
+		"Globs are expanded before the SQL runs. " +
+		"Read-only by default; DDL/DML escalate to a confirmation prompt."
 }
 
 func (t *QueryTool) InputSchema() map[string]any {
@@ -69,6 +81,10 @@ func (t *QueryTool) InputSchema() map[string]any {
 			"sql": map[string]any{
 				"type":        "string",
 				"description": "The SQL statement. References to declared sources use ${alias}.",
+			},
+			"database": map[string]any{
+				"type":        "string",
+				"description": "Optional. Path to a .duckdb file on disk to query directly (e.g. the user's existing /Users/.../data.duckdb). Default: the per-session DB Cascade created at startup. Use this for 'point Cascade at my local DuckDB data' workflows without ATTACH ceremony on every call.",
 			},
 			"sources": map[string]any{
 				"type": "array",
@@ -149,23 +165,32 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 		return errResult(err.Error()), nil
 	}
 
+	dbPath, isExternal, err := t.resolveDatabase(p.Database)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+
 	risk := duck.ClassifySQLRisk(resolvedSQL)
 
-	// Lock policy: writes serialize, reads run in parallel. Same shape
-	// as a typical SQL connection pool, scoped to this Cascade process.
-	if risk > permission.RiskReadOnly {
-		t.session.Lock()
-		defer t.session.Unlock()
-	} else {
-		t.session.RLock()
-		defer t.session.RUnlock()
+	// Lock policy: only the session DB has a Cascade-owned RWMutex.
+	// External DBs the user pointed at are out-of-band — the user
+	// presumably knows whether anything else is touching them, and
+	// DuckDB's OS-level file lock catches actual conflicts.
+	if !isExternal {
+		if risk > permission.RiskReadOnly {
+			t.session.Lock()
+			defer t.session.Unlock()
+		} else {
+			t.session.RLock()
+			defer t.session.RUnlock()
+		}
 	}
 
 	start := time.Now()
 
 	if risk > permission.RiskReadOnly {
 		_, err := t.runtime.Exec(ctx, duck.ExecOptions{
-			Database: t.session.Path,
+			Database: dbPath,
 			Init:     init,
 			SQL:      resolvedSQL,
 		})
@@ -178,7 +203,7 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 	}
 
 	res, err := t.runtime.Query(ctx, duck.QueryOptions{
-		Database: t.session.Path,
+		Database: dbPath,
 		Init:     init,
 		SQL:      resolvedSQL,
 		MaxRows:  maxRows,
@@ -189,6 +214,33 @@ func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.
 
 	display, content := renderQueryResult(res, time.Since(start).Milliseconds())
 	return &tools.Result{Content: content, Display: display}, nil
+}
+
+// resolveDatabase validates the user-supplied `database` field. Empty
+// returns the session DB. A non-empty path must exist (we don't
+// silently create files at agent direction — that should be an
+// explicit DDL via duckdb_query against the session). The bool reports
+// whether the resolved path is external (i.e. not the session DB), so
+// callers can skip the session lock.
+func (t *QueryTool) resolveDatabase(database string) (string, bool, error) {
+	if database == "" {
+		return t.session.Path, false, nil
+	}
+	abs, err := filepath.Abs(database)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve database path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", false, fmt.Errorf(
+			"database %q does not exist (Cascade does not auto-create external DB files; "+
+				"use duckdb_query against the session DB to CREATE one explicitly): %w",
+			abs, err)
+	}
+	if info.IsDir() {
+		return "", false, fmt.Errorf("database %q is a directory, expected a .duckdb file", abs)
+	}
+	return abs, abs != t.session.Path, nil
 }
 
 // resolveSources expands every declared gs:// source, substitutes the

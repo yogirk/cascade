@@ -85,19 +85,28 @@ func initDuckDB(ctx context.Context, cfg *config.Config, resource *auth.Resource
 	comp.QueryTool = dducktools.NewQueryTool(runtime, session, comp.GCSAuth)
 	comp.SchemaTool = dducktools.NewSchemaTool(runtime, session)
 
-	// bq_to_duckdb requires BQ + GCS + staging_bucket.
-	if bqComp != nil && bqComp.Client != nil && comp.GCSAuth != nil && cfg.DuckDB.StagingBucket != "" {
+	// bq_to_duckdb requires the BQ client. GCS auth + staging bucket are
+	// only needed for mode=gcs; the tool works for mode=local without
+	// either, so we register on BQ alone and let the tool's mode
+	// resolution surface the right error if a user picks gcs without
+	// staging configured.
+	if bqComp != nil && bqComp.Client != nil {
 		gate := &duck.VolumeGate{
-			WarnBytes:     cfg.DuckDB.VolumeGate.WarnBytes,
-			HardStopBytes: cfg.DuckDB.VolumeGate.HardStopBytes,
-			Estimator:     &bqEstimatorAdapter{client: bqComp.Client},
+			WarnBytes:          cfg.DuckDB.VolumeGate.WarnBytes,
+			HardStopBytes:      cfg.DuckDB.VolumeGate.HardStopBytes,
+			LocalHardStopBytes: cfg.DuckDB.VolumeGate.LocalHardStopBytes,
+			Estimator:          &bqEstimatorAdapter{client: bqComp.Client},
+		}
+		var cleaner dducktools.GCSCleaner
+		if platform != nil {
+			cleaner = &gcsCleanerAdapter{getClient: platform.GetStorageClient}
 		}
 		comp.BQToDuckDBTool = dducktools.NewBQToDuckDBTool(dducktools.BQToDuckDBConfig{
 			BQ:            &bqAdapter{client: bqComp.Client},
-			Cleaner:       &gcsCleanerAdapter{getClient: platform.GetStorageClient},
+			Cleaner:       cleaner,
 			Runtime:       runtime,
 			Session:       session,
-			GCS:           comp.GCSAuth,
+			GCS:           comp.GCSAuth, // may be nil — tool refuses gcs mode in that case
 			Gate:          gate,
 			StagingBucket: cfg.DuckDB.StagingBucket,
 		})
@@ -165,6 +174,9 @@ func (a *bqAdapter) ExportToGCS(ctx context.Context, sql, _ string) error {
 	// gcsURI is already embedded in the EXPORT DATA OPTIONS(uri=...) AS
 	// statement that bq_to_duckdb built; we just submit the job and wait.
 	return a.client.RunStatement(ctx, sql)
+}
+func (a *bqAdapter) QueryToCSV(ctx context.Context, sql string) (string, int64, error) {
+	return a.client.QueryToCSV(ctx, sql)
 }
 
 // gcsCleanerAdapter implements the GCSCleaner interface bq_to_duckdb

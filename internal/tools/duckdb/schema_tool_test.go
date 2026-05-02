@@ -76,6 +76,67 @@ func TestSchemaTool_ListAndDescribe(t *testing.T) {
 	}
 }
 
+// TestSchemaTool_ExternalDatabase covers the "user has an existing
+// .duckdb file, point Cascade at it" workflow. Cascade does not own
+// the external file's lifecycle and does not hold the session
+// RWMutex while operating on it.
+func TestSchemaTool_ExternalDatabase(t *testing.T) {
+	runtime, sess := newTestRuntime(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Pretend the user already has a .duckdb file at this path.
+	other, err := duck.NewSession(false)
+	if err != nil {
+		t.Fatalf("second session: %v", err)
+	}
+	defer other.Close()
+
+	if _, err := runtime.Exec(ctx, duck.ExecOptions{
+		Database: other.Path,
+		SQL:      "CREATE TABLE my_data (id INT, name VARCHAR); INSERT INTO my_data VALUES (1, 'a'), (2, 'b')",
+	}); err != nil {
+		t.Fatalf("seed external: %v", err)
+	}
+
+	tool := NewSchemaTool(runtime, sess)
+
+	// list_tables against the external file
+	out, err := tool.Execute(ctx, json.RawMessage(`{"action":"list_tables","database":"`+other.Path+`"}`))
+	if err != nil {
+		t.Fatalf("list_tables: %v", err)
+	}
+	if out.IsError {
+		t.Fatalf("list_tables on external db returned error: %s", out.Content)
+	}
+	if !contains(out.Content, "my_data") {
+		t.Errorf("list_tables should include 'my_data': %s", out.Content)
+	}
+
+	// describe + sample on the external file
+	out, _ = tool.Execute(ctx, json.RawMessage(`{"action":"sample","table":"my_data","limit":5,"database":"`+other.Path+`"}`))
+	if out.IsError {
+		t.Fatalf("sample on external db: %s", out.Content)
+	}
+	if !contains(out.Content, "id") {
+		t.Errorf("sample missing 'id' column: %s", out.Content)
+	}
+}
+
+func TestSchemaTool_ExternalDatabase_NotFound(t *testing.T) {
+	runtime, sess := newTestRuntime(t)
+	tool := NewSchemaTool(runtime, sess)
+
+	out, _ := tool.Execute(t.Context(), json.RawMessage(`{"action":"list_tables","database":"/nonexistent/path/data.duckdb"}`))
+	if !out.IsError {
+		t.Errorf("expected error for nonexistent database file")
+	}
+	if !contains(out.Content, "does not exist") {
+		t.Errorf("error should be clear about missing file: %s", out.Content)
+	}
+}
+
 func TestSchemaTool_RejectsBadIdentifier(t *testing.T) {
 	runtime, sess := newTestRuntime(t)
 	tool := NewSchemaTool(runtime, sess)
