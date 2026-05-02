@@ -11,6 +11,7 @@ import (
 
 	duck "github.com/slokam-ai/cascade/internal/duckdb"
 	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/render"
 	"github.com/slokam-ai/cascade/internal/tools"
 )
 
@@ -112,11 +113,15 @@ func NewBQToDuckDBTool(c BQToDuckDBConfig) *BQToDuckDBTool {
 func (t *BQToDuckDBTool) Name() string { return "bq_to_duckdb" }
 
 func (t *BQToDuckDBTool) Description() string {
-	return "Pull a BigQuery slice into the local DuckDB session. " +
-		"mode='local' (default for small slices, no extra config): streams BQ rows to a temp CSV and creates the table; capped at ~1 GiB. " +
-		"mode='gcs' (for big slices): EXPORTs to gs://<staging>/cascade-bq-export/{session}/...parquet then COPIES into the table; capped at ~50 GiB; requires [duckdb] staging_bucket. " +
-		"mode='auto' (default): picks based on size and config. " +
-		"Volume-gated; hard caps refusable with force=true."
+	return "Pull a BigQuery slice into the local DuckDB session.\n" +
+		"\n" +
+		"Modes:\n" +
+		"  - 'auto' (default): pick based on size and config.\n" +
+		"  - 'local': stream rows to a temp CSV and create the table. No extra config; capped at ~5 GiB scan size.\n" +
+		"  - 'gcs':   EXPORT to gs://<staging>/cascade-bq-export/<session>/...parquet, then COPY. Capped at ~50 GiB; requires [duckdb] staging_bucket.\n" +
+		"\n" +
+		"Pattern for 'small slice from a big table': narrow your SELECT (specific columns + WHERE), or add a LIMIT and " +
+		"pass force=true. Note: BQ bills for the full scan even when LIMIT is set, so prefer narrowing when feasible."
 }
 
 func (t *BQToDuckDBTool) InputSchema() map[string]any {
@@ -237,10 +242,11 @@ func (t *BQToDuckDBTool) resolveMode(ctx context.Context, p bqToDuckInput) (stri
 		case canGCS:
 			return modeGCS, nil
 		default:
-			return "", fmt.Errorf(
-				"the slice is too big for the local stream path (%d bytes) and no [duckdb] staging_bucket is configured for GCS. "+
-					"Either configure staging_bucket and use mode='gcs', or pass force=true to push the local cap.",
-				bytes)
+			localCap := int64(0)
+			if t.gate != nil {
+				localCap = t.gate.LocalHardStopBytes
+			}
+			return "", errors.New(noPathFitsMessage(bytes, localCap))
 		}
 
 	default:
@@ -401,11 +407,40 @@ func buildExportSQL(userSQL, gcsURI string) string {
 }
 
 // stagingMissingMessage tells the user how to fix a missing
-// staging_bucket. Mentions the gcs tool because that's how a Cascade
-// session creates a new bucket without leaving the agent.
+// staging_bucket. Multi-line on purpose so the TUI's tool-output
+// renderer wraps it cleanly instead of pushing the suggestion off
+// the right edge of the screen.
 func stagingMissingMessage() string {
-	return "bq_to_duckdb requires a staging bucket. Add\n" +
-		"  [duckdb]\n  staging_bucket = \"<bucket-name>\"\n" +
-		"to your cascade config (or ~/.cascade/config.toml). " +
-		"To create a new bucket, ask Cascade to create one with the gcs tool."
+	return "bq_to_duckdb mode='gcs' requires a staging bucket.\n" +
+		"To configure one, add the following to ~/.cascade/config.toml:\n" +
+		"\n" +
+		"    [duckdb]\n" +
+		"    staging_bucket = \"<bucket-name>\"\n" +
+		"\n" +
+		"To create a new bucket without leaving Cascade, ask the gcs tool to create one."
+}
+
+// noPathFitsMessage is what auto-mode emits when both paths refuse:
+// the slice is bigger than the local cap AND no GCS staging is
+// configured. Multi-line so it renders cleanly.
+//
+// Honest about what's bounded by what:
+//   - "scan" is the BQ-billable scan size (LIMIT does not reduce it).
+//   - the local cap bounds disk usage on the user's machine.
+//   - the GCS path's 50 GiB cap is a higher ceiling, but needs
+//     staging_bucket.
+func noPathFitsMessage(scanBytes, localCap int64) string {
+	scan := render.FormatBytes(scanBytes)
+	cap_ := "the configured local cap"
+	if localCap > 0 {
+		cap_ = render.FormatBytes(localCap)
+	}
+	return "BQ would scan " + scan + " for this query.\n" +
+		"That's above the local-stream cap (" + cap_ + ") and no [duckdb] staging_bucket is configured.\n" +
+		"\n" +
+		"To proceed, do one of:\n" +
+		"  - narrow the query (specific columns, a tighter WHERE) and retry, OR\n" +
+		"  - configure [duckdb] staging_bucket in ~/.cascade/config.toml and retry with mode='gcs', OR\n" +
+		"  - pass force=true if you've added a LIMIT and the result will be small\n" +
+		"    (note: BQ still bills you for the full scan, regardless of LIMIT)."
 }

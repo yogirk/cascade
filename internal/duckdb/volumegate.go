@@ -115,14 +115,18 @@ func (g *VolumeGate) check(ctx context.Context, sql string, force bool, hardStop
 			Decision: VolumeBlock,
 			Bytes:    bytes,
 			Reason: fmt.Sprintf(
-				"BQ %s would move %s, above the %s hard stop. Add a WHERE clause, narrow columns, switch to a path with a higher cap, or pass force=true to override.",
-				label, render.FormatBytes(bytes), render.FormatBytes(hardStop),
+				"BQ would scan %s for this query.\n"+
+					"That's above the %s cap (%s).\n"+
+					"\nTo proceed:\n"+
+					"  - narrow the SELECT (specific columns / WHERE) and retry, OR\n"+
+					"  - pass force=true (note: BQ bills for the scan even when LIMIT is set).",
+				render.FormatBytes(bytes), label, render.FormatBytes(hardStop),
 			),
 		}, nil
 
 	case g.WarnBytes > 0 && bytes > g.WarnBytes:
-		reason := fmt.Sprintf("BQ %s would move %s (warn threshold %s)",
-			label, render.FormatBytes(bytes), render.FormatBytes(g.WarnBytes))
+		reason := fmt.Sprintf("BQ would scan %s for this query (%s path; warn at %s)",
+			render.FormatBytes(bytes), label, render.FormatBytes(g.WarnBytes))
 		if force && hardStop > 0 && bytes > hardStop {
 			reason += " — proceeding under force=true"
 		}

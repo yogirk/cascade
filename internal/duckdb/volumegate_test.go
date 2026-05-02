@@ -121,7 +121,10 @@ func TestVolumeGate_LocalHardStopIsTighter(t *testing.T) {
 		t.Errorf("local path on 5 GiB: decision = %v, want VolumeBlock", local.Decision)
 	}
 	if !contains(local.Reason, "local stream") {
-		t.Errorf("local block message should mention 'local stream', got %q", local.Reason)
+		t.Errorf("local block message should mention 'local stream' label, got %q", local.Reason)
+	}
+	if !contains(local.Reason, "force=true") {
+		t.Errorf("local block message should mention force=true escape hatch, got %q", local.Reason)
 	}
 }
 

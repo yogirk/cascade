@@ -141,15 +141,16 @@ func TestBQToDuckDB_LocalMode_NoStagingNeeded(t *testing.T) {
 
 func TestBQToDuckDB_LocalMode_BlocksOnSize(t *testing.T) {
 	runtime, sess := newTestRuntime(t)
+	// 10 GiB over the 5 GiB default local cap.
 	tool := NewBQToDuckDBTool(BQToDuckDBConfig{
-		BQ:      &fakeBQ{bytes: 5 * (1 << 30)}, // 5 GiB > local cap
+		BQ:      &fakeBQ{bytes: 10 * (1 << 30)},
 		Runtime: runtime,
 		Session: sess,
 		Gate: &duck.VolumeGate{
 			WarnBytes:          1 << 30,
 			HardStopBytes:      50 * (1 << 30),
-			LocalHardStopBytes: 1 << 30,
-			Estimator:          &fakeEstimator{bytes: 5 * (1 << 30)},
+			LocalHardStopBytes: 5 * (1 << 30),
+			Estimator:          &fakeEstimator{bytes: 10 * (1 << 30)},
 		},
 	})
 	out, err := tool.Execute(t.Context(), json.RawMessage(
@@ -158,7 +159,7 @@ func TestBQToDuckDB_LocalMode_BlocksOnSize(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	if !out.IsError {
-		t.Errorf("expected block at 5 GiB on local mode")
+		t.Errorf("expected block at 10 GiB on local mode (cap 5 GiB)")
 	}
 	if !strings.Contains(out.Content, "local stream") {
 		t.Errorf("error should explain local-stream limit, got: %s", out.Content)
@@ -168,15 +169,15 @@ func TestBQToDuckDB_LocalMode_BlocksOnSize(t *testing.T) {
 func TestBQToDuckDB_LocalBlock_RedirectsToGCSWhenAvailable(t *testing.T) {
 	runtime, sess := newTestRuntime(t)
 	tool := NewBQToDuckDBTool(BQToDuckDBConfig{
-		BQ:      &fakeBQ{bytes: 5 * (1 << 30)},
+		BQ:      &fakeBQ{bytes: 10 * (1 << 30)},
 		Runtime: runtime,
 		Session: sess,
 		GCS:     stubGCSAuth(),
 		Gate: &duck.VolumeGate{
 			WarnBytes:          1 << 30,
 			HardStopBytes:      50 * (1 << 30),
-			LocalHardStopBytes: 1 << 30,
-			Estimator:          &fakeEstimator{bytes: 5 * (1 << 30)},
+			LocalHardStopBytes: 5 * (1 << 30),
+			Estimator:          &fakeEstimator{bytes: 10 * (1 << 30)},
 		},
 		StagingBucket: "stage",
 	})
@@ -228,25 +229,32 @@ func TestBQToDuckDB_AutoMode_PicksLocalForSmall(t *testing.T) {
 
 func TestBQToDuckDB_AutoMode_NoGCSAndTooBig_Refuses(t *testing.T) {
 	runtime, sess := newTestRuntime(t)
+	// 10 GiB bytes well over the 5 GiB local cap.
 	tool := NewBQToDuckDBTool(BQToDuckDBConfig{
-		BQ:      &fakeBQ{bytes: 5 * (1 << 30)}, // 5 GiB
+		BQ:      &fakeBQ{bytes: 10 * (1 << 30)},
 		Runtime: runtime,
 		Session: sess,
 		Gate: &duck.VolumeGate{
 			WarnBytes:          1 << 30,
-			LocalHardStopBytes: 1 << 30,
+			LocalHardStopBytes: 5 * (1 << 30),
 			HardStopBytes:      50 * (1 << 30),
-			Estimator:          &fakeEstimator{bytes: 5 * (1 << 30)},
+			Estimator:          &fakeEstimator{bytes: 10 * (1 << 30)},
 		},
 		// No GCS, no staging — auto can't pick gcs and shouldn't pick local.
 	})
 	out, _ := tool.Execute(t.Context(), json.RawMessage(
 		`{"sql":"SELECT *","target_table":"big"}`))
 	if !out.IsError {
-		t.Fatalf("expected refusal when 5 GiB and no GCS available")
+		t.Fatalf("expected refusal when 10 GiB and no GCS available")
 	}
-	if !strings.Contains(out.Content, "staging_bucket") {
-		t.Errorf("error should suggest staging_bucket: %s", out.Content)
+	for _, want := range []string{"staging_bucket", "force=true", "10.0 GB"} {
+		if !strings.Contains(out.Content, want) {
+			t.Errorf("error should mention %q, got: %s", want, out.Content)
+		}
+	}
+	// Multi-line check: the message should not be one giant line.
+	if !strings.Contains(out.Content, "\n") {
+		t.Errorf("expected multi-line error, got single line: %s", out.Content)
 	}
 }
 
