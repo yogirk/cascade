@@ -115,6 +115,27 @@ func (c *Client) RunQuery(ctx context.Context, sql string) (*bigquery.RowIterato
 	return it, nil
 }
 
+// RunStatement runs a non-SELECT statement (EXPORT, DDL, DML) and waits
+// for the job to complete. Returns the job's terminal status error if
+// the job failed, or nil on success. Used by the DuckDB integration to
+// drive `EXPORT DATA OPTIONS(...) AS <sql>` jobs without iterating an
+// empty result set the way Read() would.
+func (c *Client) RunStatement(ctx context.Context, sql string) error {
+	q := c.bq.Query(sql)
+	job, err := q.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("submit job: %w", err)
+	}
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("wait job: %w", err)
+	}
+	if status.Err() != nil {
+		return fmt.Errorf("job failed: %w", status.Err())
+	}
+	return nil
+}
+
 // valuesToStrings converts a row of BigQuery values to string representations.
 func valuesToStrings(row []bigquery.Value) []string {
 	result := make([]string, len(row))

@@ -21,17 +21,23 @@ import (
 // Auth-mode-agnostic by design: ResourceAuth produces an OAuth bearer
 // from ADC, impersonation, or a service-account key. All three carry
 // the cloud-platform scope GCS XML API accepts.
+// StorageClientProvider returns a *storage.Client (or nil if it is
+// still initializing). Mirrors the lazy-provider pattern used by the
+// Logging and GCS tools — the storage client is created in a goroutine
+// at app startup so it doesn't block the TUI from rendering.
+type StorageClientProvider func() *storage.Client
+
 type GCSAuth struct {
-	ts        oauth2.TokenSource
-	gcsClient *storage.Client
+	ts          oauth2.TokenSource
+	getGCSClient StorageClientProvider
 }
 
-// NewGCSAuth wires the bearer source and a storage client. The storage
-// client is used for glob expansion (LIST API). Pass the same client
-// the rest of Cascade already constructed — there is no need to make a
-// second one for the DuckDB path.
-func NewGCSAuth(ts oauth2.TokenSource, gcsClient *storage.Client) *GCSAuth {
-	return &GCSAuth{ts: ts, gcsClient: gcsClient}
+// NewGCSAuth wires the bearer source and a storage-client provider.
+// The provider is consulted lazily on each ExpandGlob call so it can
+// race with async init — by the time the agent calls a DuckDB tool,
+// the client is almost always ready.
+func NewGCSAuth(ts oauth2.TokenSource, getGCSClient StorageClientProvider) *GCSAuth {
+	return &GCSAuth{ts: ts, getGCSClient: getGCSClient}
 }
 
 // BuildInitPrelude returns init-file SQL that pins the current bearer
@@ -132,14 +138,18 @@ func (g *GCSAuth) ExpandGlob(ctx context.Context, gsURL string) ([]string, error
 		return []string{"https://storage.googleapis.com/" + bucket + "/" + pattern}, nil
 	}
 
-	if g == nil || g.gcsClient == nil {
+	if g == nil || g.getGCSClient == nil {
 		return nil, fmt.Errorf("duckdb: GCS client not configured for glob expansion")
+	}
+	client := g.getGCSClient()
+	if client == nil {
+		return nil, fmt.Errorf("duckdb: GCS client not yet initialized")
 	}
 
 	// Fixed prefix is everything before the first meta-character. We
 	// list with that prefix server-side and filter the rest in Go.
 	prefix := globPrefix(pattern)
-	it := g.gcsClient.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: prefix})
+	it := client.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: prefix})
 
 	var matches []string
 	for {
