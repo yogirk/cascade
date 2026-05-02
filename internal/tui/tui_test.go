@@ -430,17 +430,13 @@ func TestWelcomeView(t *testing.T) {
 func TestRenderCascadeLogoFootprint(t *testing.T) {
 	logo := renderCascadeLogo()
 	lines := strings.Split(logo, "\n")
-	// 3 tile rows interleaved with 2 blank "groove" rows = 5 lines total.
-	if got := len(lines); got != 5 {
-		t.Fatalf("renderCascadeLogo() produced %d rows, want 5", got)
+	// Three bars stepping right by 1 cell each.
+	if got := len(lines); got != 3 {
+		t.Fatalf("renderCascadeLogo() produced %d rows, want 3", got)
 	}
-	// Tile rows (even indices): 4 tiles × 2 cells + 3 gaps × 2 cells = 14 cells.
-	// Groove rows (odd indices): empty.
+	// Each row: 5-wide bar + (i)-cell leading pad. Widths: 5, 6, 7.
 	for i, line := range lines {
-		want := 14
-		if i%2 == 1 {
-			want = 0
-		}
+		want := 5 + i
 		if got := lipgloss.Width(line); got != want {
 			t.Fatalf("renderCascadeLogo() row %d width = %d, want %d", i, got, want)
 		}

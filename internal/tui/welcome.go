@@ -46,64 +46,37 @@ func (w *WelcomeModel) SetSize(width, height int) {
 // cascadeBg1-3) are defined in styles.go and initialized adaptively
 // for light/dark terminals via initPalette().
 
-// renderCascadeLogo renders the Cascade logo — a 4×3 grid (4 columns,
-// 3 rows) of square tiles painted with three brightness tiers in the
-// Slokam dialect, theme-reactive via cascadeBg1Color (dim),
-// cascadeBg2Color (mid), and cascadeBg3Color (bright). The pattern
-// favours brighter tiles on the upper-left and dimmer tiles on the
-// lower-right, suggesting a cascade catching light at the lip and
-// fading as the water disperses.
+// renderCascadeLogo renders the Cascade logo — three solid bars
+// stepping diagonally down-right, each a brightness tier. The shape
+// is what gave the project its name — water stepping down the
+// cascade. Theme-reactive via cascadeBg1/2/3Color, so the gradient
+// follows /theme.
 //
-// Each tile is a 2-char-wide full-block pair (██) — terminal cells are
-// roughly 1:2 (width:height), so two cells side-by-side approximate a
-// square. A 2-cell horizontal gap matches the visual thickness of the
-// 1-line vertical gap (since 1 line ≈ 2 cell-widths), giving the logo
-// equal grooves in both axes. Total footprint: 5 lines × 14 cells →
-// 14 × 10 cell-widths → landscape rectangle (wider than tall).
+// Visual:    █████
+//             █████
+//              █████
+//
+// Implementation note: each "block" is a SPACE character painted with
+// a Background color, not a foreground full-block glyph. The two
+// approaches look identical in well-behaved terminals, but full-block
+// glyphs (█, U+2588) ship with subtle font-metric variation across
+// terminals/fonts that shows up as alignment drift between rows. A
+// background-painted space is monospaced by definition.
+//
+// Total footprint: 3 lines × 7 cells.
 func renderCascadeLogo() string {
-	// 4 cols × 3 rows scatter — values map to brightness tiers:
-	//   1 = dim   (cascadeBg1Color)
-	//   2 = mid   (cascadeBg2Color)
-	//   3 = bright (cascadeBg3Color)
-	// The diagonal bias (more 3s top-left, more 1s bottom-right) is what
-	// gives the eye a sense of cascade direction.
-	pattern := [3][4]int{
-		{3, 3, 2, 1},
-		{2, 3, 3, 2},
-		{1, 2, 3, 3},
-	}
+	const px = " " // 1-cell pixel unit
+	bar := strings.Repeat(px, 5)
 
-	tier := [4]lipgloss.Style{
-		{}, // index 0 unused — pattern values start at 1
-		lipgloss.NewStyle().Foreground(cascadeBg1Color),
-		lipgloss.NewStyle().Foreground(cascadeBg2Color),
-		lipgloss.NewStyle().Foreground(cascadeBg3Color),
-	}
+	bright := lipgloss.NewStyle().Background(cascadeBg3Color).Render(bar)
+	mid := lipgloss.NewStyle().Background(cascadeBg2Color).Render(bar)
+	dim := lipgloss.NewStyle().Background(cascadeBg1Color).Render(bar)
 
-	const tile = "██"
-	const hgap = "  "
-
-	rowLines := make([]string, 3)
-	for r := 0; r < 3; r++ {
-		var b strings.Builder
-		for c := 0; c < 4; c++ {
-			if c > 0 {
-				b.WriteString(hgap)
-			}
-			b.WriteString(tier[pattern[r][c]].Render(tile))
-		}
-		rowLines[r] = b.String()
-	}
-
-	// Interleave a blank line between rows for the vertical "groove."
-	out := make([]string, 0, 3*2-1)
-	for i, line := range rowLines {
-		if i > 0 {
-			out = append(out, "")
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n")
+	return strings.Join([]string{
+		bright,
+		px + mid,
+		px + px + dim,
+	}, "\n")
 }
 
 // -- View --
@@ -176,13 +149,17 @@ func (w WelcomeModel) View() string {
 	// === Left panel: match the right panel's height and center the logo
 	// vertically inside it. This keeps the logo visually anchored at the
 	// midpoint of the welcome banner regardless of how many rows the right
-	// panel ends up needing (auth warning, dataset list, etc.). ===
+	// panel ends up needing (auth warning, dataset list, etc.).
+	//
+	// Note: AlignHorizontal is intentionally LEFT (the default). The
+	// staircase logo's whole point is unequal row widths (5, 6, 7 cells);
+	// centering each row independently would collapse those offsets and
+	// destroy the diagonal. ===
 	leftStyle := lipgloss.NewStyle().
 		Width(leftW).
 		Height(lipgloss.Height(rightPanel)).
 		Padding(0, 3).
-		AlignVertical(lipgloss.Center).
-		AlignHorizontal(lipgloss.Center)
+		AlignVertical(lipgloss.Center)
 
 	leftPanel := leftStyle.Render(leftContent)
 
