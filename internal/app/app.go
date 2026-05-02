@@ -38,6 +38,7 @@ type App struct {
 	Events      chan types.Event
 	Approvals   chan types.ApprovalRequest
 	BQ          *BigQueryComponents  // nil if BQ not configured
+	DuckDB      *DuckDBComponents    // nil if duckdb CLI unavailable
 	Platform    *PlatformComponents  // nil if GCP auth unavailable
 	Resource    *auth.ResourceAuth   // GCP platform credentials
 	Morning     *plat.PlatformCollector // nil if no sources available
@@ -106,6 +107,10 @@ func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error)
 	// ── 5b. Platform tools (Logging, GCS) ──
 	platform := initPlatform(ctx, cfg, resource)
 	registerPlatformTools(registry, platform, cfg)
+
+	// ── 5c. DuckDB tools ──
+	duckdbComp := initDuckDB(ctx, cfg, resource, bqComp, platform)
+	registerDuckDBTools(registry, duckdbComp)
 
 	// ── 6. Permissions ──
 	defaultMode := permission.ParseMode(cfg.Security.DefaultMode)
@@ -202,6 +207,7 @@ func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error)
 		Events:      events,
 		Approvals:   approvals,
 		BQ:          bqComp,
+		DuckDB:      duckdbComp,
 		Platform:    platform,
 		Resource:    resource,
 		Morning:     morning,
@@ -221,6 +227,9 @@ func (a *App) ReloadTools() int {
 	if a.Platform != nil {
 		registerPlatformTools(a.Registry, a.Platform, a.Config)
 	}
+	if a.DuckDB != nil {
+		registerDuckDBTools(a.Registry, a.DuckDB)
+	}
 	return len(a.Registry.All())
 }
 
@@ -228,6 +237,9 @@ func (a *App) ReloadTools() int {
 func (a *App) Close() {
 	if a.BQ != nil {
 		a.BQ.Close()
+	}
+	if a.DuckDB != nil {
+		a.DuckDB.Close()
 	}
 	if a.Sessions != nil {
 		a.Sessions.Close()

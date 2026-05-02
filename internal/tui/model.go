@@ -16,7 +16,7 @@ import (
 	"github.com/slokam-ai/cascade/internal/app"
 	plat "github.com/slokam-ai/cascade/internal/platform"
 	"github.com/slokam-ai/cascade/internal/provider"
-	bqrender "github.com/slokam-ai/cascade/internal/tools/bigquery"
+	"github.com/slokam-ai/cascade/internal/render"
 	logtool "github.com/slokam-ai/cascade/internal/tools/logging"
 	"github.com/slokam-ai/cascade/internal/tui/themes"
 	"github.com/slokam-ai/cascade/pkg/types"
@@ -739,7 +739,7 @@ func (m *Model) layout() {
 	if toolWidth < 40 {
 		toolWidth = 40
 	}
-	bqrender.SetRenderWidth(toolWidth)
+	render.SetRenderWidth(toolWidth)
 }
 
 // indentBlock prepends a margin to each line of a multi-line string.

@@ -4,8 +4,10 @@ package bigquery
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -113,6 +115,136 @@ func (c *Client) RunQuery(ctx context.Context, sql string) (*bigquery.RowIterato
 		return nil, fmt.Errorf("query read: %w", err)
 	}
 	return it, nil
+}
+
+// QueryToCSV runs a SELECT and dumps every row to a freshly-created
+// temp CSV file. The caller owns the file from the moment QueryToCSV
+// returns — it is responsible for `os.Remove` on success and cleanup on
+// error. The header row is written first so DuckDB's `read_csv_auto`
+// picks up column names without further plumbing.
+//
+// Used by the DuckDB integration's `mode=local` path: small BQ pulls
+// where the GCS round-trip is more friction than it's worth. Streaming
+// is row-by-row through encoding/csv, so memory is bounded — but
+// `mode=local` is still gated to ~1 GiB by VolumeGate because each
+// cell becomes a string for CSV serialization (5x-10x storage blow-up
+// vs. Parquet's columnar+compressed format).
+//
+// NULL convention: empty unquoted cell. Pairs with `read_csv_auto`'s
+// default `nullstr=''` so NULLs survive the round-trip cleanly.
+func (c *Client) QueryToCSV(ctx context.Context, sql string) (path string, rows int64, err error) {
+	q := c.bq.Query(sql)
+	it, err := q.Read(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("query read: %w", err)
+	}
+
+	f, err := os.CreateTemp("", "cascade-bq-*.csv")
+	if err != nil {
+		return "", 0, fmt.Errorf("create temp csv: %w", err)
+	}
+	// On any failure past this point we delete the half-written file —
+	// returning a useless path to the caller would be worse than
+	// returning an error.
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+	}
+
+	w := csv.NewWriter(f)
+
+	// Pull the first row to populate it.Schema (BQ doesn't fill the
+	// schema until iteration has started).
+	var firstRow []bigquery.Value
+	first := it.Next(&firstRow)
+	if first != nil && first != iterator.Done {
+		cleanup()
+		return "", 0, fmt.Errorf("first row: %w", first)
+	}
+
+	if it.Schema == nil {
+		cleanup()
+		return "", 0, fmt.Errorf("no schema returned from query")
+	}
+
+	headers := make([]string, len(it.Schema))
+	for i, field := range it.Schema {
+		headers[i] = field.Name
+	}
+	if err := w.Write(headers); err != nil {
+		cleanup()
+		return "", 0, fmt.Errorf("write header: %w", err)
+	}
+
+	if first != iterator.Done {
+		if err := w.Write(rowToCSV(firstRow)); err != nil {
+			cleanup()
+			return "", 0, fmt.Errorf("write first row: %w", err)
+		}
+		rows++
+	}
+
+	for {
+		var row []bigquery.Value
+		switch err := it.Next(&row); err {
+		case nil:
+			if err := w.Write(rowToCSV(row)); err != nil {
+				cleanup()
+				return "", 0, fmt.Errorf("write row %d: %w", rows, err)
+			}
+			rows++
+		case iterator.Done:
+			w.Flush()
+			if err := w.Error(); err != nil {
+				cleanup()
+				return "", 0, fmt.Errorf("flush csv: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				_ = os.Remove(f.Name())
+				return "", 0, fmt.Errorf("close csv: %w", err)
+			}
+			return f.Name(), rows, nil
+		default:
+			cleanup()
+			return "", 0, fmt.Errorf("row iteration: %w", err)
+		}
+	}
+}
+
+// rowToCSV converts a single BQ row to the [] string form encoding/csv
+// expects. NULLs become empty strings (CSV-standard) so DuckDB's
+// read_csv_auto restores them as NULLs without configuration.
+func rowToCSV(row []bigquery.Value) []string {
+	out := make([]string, len(row))
+	for i, v := range row {
+		if v == nil {
+			out[i] = ""
+			continue
+		}
+		out[i] = valueToString(v)
+	}
+	return out
+}
+
+// RunStatement runs a non-SELECT statement (EXPORT, DDL, DML) and waits
+// for the job to complete. Returns the job's terminal status error if
+// the job failed, or nil on success. Used by the DuckDB integration to
+// drive `EXPORT DATA OPTIONS(...) AS <sql>` jobs without iterating an
+// empty result set the way Read() would.
+func (c *Client) RunStatement(ctx context.Context, sql string) error {
+	q := c.bq.Query(sql)
+	job, err := q.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("submit job: %w", err)
+	}
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("wait job: %w", err)
+	}
+	if status.Err() != nil {
+		return fmt.Errorf("job failed: %w", status.Err())
+	}
+	return nil
 }
 
 // valuesToStrings converts a row of BigQuery values to string representations.

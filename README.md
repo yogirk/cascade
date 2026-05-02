@@ -75,6 +75,14 @@ make build
 go install github.com/slokam-ai/cascade/cmd/cascade@latest
 ```
 
+Cascade is **pure-Go** — no C toolchain required. The `Makefile` pins
+`CGO_ENABLED=0` so `make build` and `make test` produce a single static
+binary that drops onto darwin / linux / windows without `gcc`. Run
+`make verify-pure-go` to cross-compile to every supported OS — useful
+before tagging a release. If a future change accidentally pulls in a
+CGO-only dep, the build will fail loudly rather than silently producing
+a non-portable binary.
+
 ### Run
 
 ```bash
@@ -117,6 +125,19 @@ billing_dataset = ""     # Billing export dataset name (optional)
 # Permission mode
 [security]
 default_mode = "ask"  # ask | read-only | full-access
+
+# DuckDB engine — all optional. The local-only paths
+# (duckdb_query / duckdb_schema, bq_to_duckdb mode='local') work with
+# zero config. Configure these when you want bq_to_duckdb mode='gcs'
+# or want to tune the volume gate for your machine.
+[duckdb]
+staging_bucket = ""        # GCS bucket (no gs:// prefix) for bq_to_duckdb mode='gcs'
+keep_session_db = false    # true = retain ~/.cascade/duckdb/<id>.db on exit
+
+[duckdb.volume_gate]
+warn_bytes            = 1073741824     # 1 GiB — informational warning
+hard_stop_bytes       = 53687091200    # 50 GiB — refuse mode='gcs' unless force=true
+local_hard_stop_bytes = 5368709120     # 5 GiB — refuse mode='local' unless force=true
 ```
 
 Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC for GCP tools.
@@ -143,6 +164,13 @@ Without a config file, Cascade auto-detects: `GOOGLE_API_KEY` for the LLM, ADC f
 - `/insights` — One-command cost health dashboard (query trend, top queries, storage, slots)
 - `/cost` — Styled session cost breakdown
 - `/sync [dataset]` — Refresh schema cache (syncs all configured projects)
+
+### DuckDB (zero per-scan cost)
+- `duckdb_query` — Run SQL against the per-session DB or any `.duckdb` file (`database='/path/to/your.duckdb'`); also queries `gs://*.parquet` directly via httpfs with bearer auth
+- `duckdb_schema` — List tables, describe columns, sample rows; works on the session DB or external files
+- `bq_to_duckdb` — Pull a BQ slice into a local table. Modes: `local` (small, no staging needed), `gcs` (large, EXPORT-to-Parquet via staging bucket), `auto` (picks based on size + config)
+- Volume gate guards against accidental terabyte pulls; honest about the BQ-scan-vs-local-disk distinction
+- Pure-Go invariant intact: subprocess wrapper around the `duckdb` CLI, no CGO
 
 ### Cloud Logging
 - `cloud_logging` — Query and tail GCP log entries with filter syntax

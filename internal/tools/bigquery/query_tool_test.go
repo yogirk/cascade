@@ -11,6 +11,7 @@ import (
 	bq "github.com/slokam-ai/cascade/internal/bigquery"
 	"github.com/slokam-ai/cascade/internal/config"
 	"github.com/slokam-ai/cascade/internal/permission"
+	"github.com/slokam-ai/cascade/internal/render"
 	"github.com/slokam-ai/cascade/pkg/types"
 )
 
@@ -114,7 +115,7 @@ func TestRenderQueryResultsTruncation(t *testing.T) {
 	rows := make([][]string, 100)
 	for i := range rows {
 		rows[i] = []string{
-			formatRowCount(int64(i + 1)),
+			render.FormatRowCount(int64(i + 1)),
 			"data",
 		}
 	}

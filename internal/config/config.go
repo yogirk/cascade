@@ -13,6 +13,7 @@ type Config struct {
 	Cost     CostConfig     `toml:"cost"`
 	Logging  LoggingConfig  `toml:"logging"`
 	GCS      GCSConfig      `toml:"gcs"`
+	DuckDB   DuckDBConfig   `toml:"duckdb"`
 
 	// Deprecated: use GCP.Auth instead. Kept for backward compatibility.
 	Auth LegacyAuthConfig `toml:"auth"`
@@ -90,6 +91,55 @@ type LoggingConfig struct {
 // GCSConfig configures Cloud Storage behavior.
 type GCSConfig struct {
 	MaxReadLines int `toml:"max_read_lines"` // Default: 100
+}
+
+// DuckDBConfig configures the DuckDB engine integration.
+//
+// The local-only path (query_tool / schema_tool against a local
+// .duckdb file or gs://*.parquet) works with zero config. StagingBucket
+// is only required for bq_to_duckdb, which exports BigQuery → GCS
+// Parquet → COPY into the local session DB.
+type DuckDBConfig struct {
+	// StagingBucket is the GCS bucket name (no gs:// prefix) used to stage
+	// BQ EXPORT output for bq_to_duckdb. Optional. If empty, bq_to_duckdb
+	// returns a clear error that points the user at the gcs tool to create
+	// one. The local-only DuckDB workflows do not need it.
+	StagingBucket string `toml:"staging_bucket"`
+
+	// CLIPath optionally overrides the auto-discovered `duckdb` CLI path.
+	// Empty = use whatever is on PATH.
+	CLIPath string `toml:"cli_path"`
+
+	// KeepSessionDB retains the per-invocation .duckdb file under
+	// ~/.cascade/duckdb/ on clean exit. Default false — the file is
+	// deleted on graceful shutdown.
+	KeepSessionDB bool `toml:"keep_session_db"`
+
+	// VolumeGate guards bq_to_duckdb against accidentally pulling
+	// terabytes onto a laptop.
+	VolumeGate VolumeGateConfig `toml:"volume_gate"`
+}
+
+// VolumeGateConfig holds the size thresholds for bq_to_duckdb.
+//
+// All values are bytes. Defaults are tuned so a normal "give me a year
+// of this dataset" pull just works on a modern laptop:
+//
+//   - warn_bytes:            1 GiB (informational; the agent surfaces
+//                            it in the destructive-action confirm)
+//   - hard_stop_bytes:      50 GiB (GCS staging path; refuse unless
+//                            force=true)
+//   - local_hard_stop_bytes: 5 GiB (local stream path; bigger than
+//                            warn so a year of HN-scale data flows
+//                            without ceremony, smaller than the GCS
+//                            cap because CSV stream is single-stream
+//                            and disk-hungry)
+//
+// Users on constrained machines can dial these down in config.toml.
+type VolumeGateConfig struct {
+	WarnBytes          int64 `toml:"warn_bytes"`
+	HardStopBytes      int64 `toml:"hard_stop_bytes"`
+	LocalHardStopBytes int64 `toml:"local_hard_stop_bytes"`
 }
 
 // AgentConfig configures the agent loop behavior.
@@ -170,6 +220,13 @@ func DefaultConfig() Config {
 		},
 		GCS: GCSConfig{
 			MaxReadLines: 100,
+		},
+		DuckDB: DuckDBConfig{
+			VolumeGate: VolumeGateConfig{
+				WarnBytes:          1 << 30,        // 1 GiB
+				HardStopBytes:      50 * (1 << 30), // 50 GiB
+				LocalHardStopBytes: 5 * (1 << 30),  // 5 GiB
+			},
 		},
 	}
 }
