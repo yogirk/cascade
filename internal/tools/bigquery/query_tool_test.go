@@ -3,6 +3,7 @@ package bigquery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	gcbq "cloud.google.com/go/bigquery"
@@ -215,6 +216,73 @@ func TestTableRefRegex(t *testing.T) {
 		if matches[2] != tc.table {
 			t.Errorf("table = %q, want %q for SQL: %q", matches[2], tc.table, tc.sql)
 		}
+	}
+}
+
+func TestQueryToolPlanPermission_DowngradesReadOnlyWithoutCostConfig(t *testing.T) {
+	// Reproduces the "[DESTRUCTIVE] bigquery_query wants to execute: SELECT ..."
+	// regression: when no cost config is supplied, a SELECT must still
+	// downgrade to RiskReadOnly. Otherwise the base RiskDestructive bleeds
+	// through and a plain read is gated as a destructive operation.
+	qt := &QueryTool{} // no client, no costConfig
+
+	plan, err := qt.PlanPermission(
+		context.Background(),
+		json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`),
+		permission.RiskDestructive, // base risk passed by the agent loop
+	)
+	if err != nil {
+		t.Fatalf("PlanPermission: %v", err)
+	}
+	if plan == nil || plan.RiskOverride == nil {
+		t.Fatalf("expected read-only downgrade, got %#v", plan)
+	}
+	if *plan.RiskOverride != permission.RiskReadOnly {
+		t.Fatalf("RiskOverride = %v, want RiskReadOnly", *plan.RiskOverride)
+	}
+}
+
+func TestQueryToolPlanPermission_DowngradesReadOnlyBelowWarnThreshold(t *testing.T) {
+	qt := &QueryTool{
+		client: &mockQueryClient{bytes: 100_000, cost: 0.0001},
+		costConfig: &config.CostConfig{
+			WarnThreshold: 1.0,
+			MaxQueryCost:  10.0,
+		},
+	}
+
+	plan, err := qt.PlanPermission(
+		context.Background(),
+		json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`),
+		permission.RiskDestructive,
+	)
+	if err != nil {
+		t.Fatalf("PlanPermission: %v", err)
+	}
+	if plan == nil || plan.RiskOverride == nil || *plan.RiskOverride != permission.RiskReadOnly {
+		t.Fatalf("cheap SELECT must downgrade to RiskReadOnly, got %#v", plan)
+	}
+}
+
+func TestQueryToolPlanPermission_DowngradesReadOnlyOnEstimateError(t *testing.T) {
+	qt := &QueryTool{
+		client: &mockQueryClient{err: fmt.Errorf("estimate failed")},
+		costConfig: &config.CostConfig{
+			WarnThreshold: 1.0,
+			MaxQueryCost:  10.0,
+		},
+	}
+
+	plan, err := qt.PlanPermission(
+		context.Background(),
+		json.RawMessage(`{"sql":"SELECT * FROM analytics.orders"}`),
+		permission.RiskDestructive,
+	)
+	if err != nil {
+		t.Fatalf("PlanPermission: %v", err)
+	}
+	if plan == nil || plan.RiskOverride == nil || *plan.RiskOverride != permission.RiskReadOnly {
+		t.Fatalf("estimate-error path must still downgrade to RiskReadOnly, got %#v", plan)
 	}
 }
 

@@ -81,34 +81,44 @@ func (t *QueryTool) RiskLevel() permission.RiskLevel {
 // PlanPermission classifies SQL risk and applies cost-aware gating.
 // First classifies the SQL statement to determine the real risk (handling CTEs etc.),
 // then for read-only queries checks cost thresholds.
+//
+// Every return path for parsed input MUST set a RiskOverride. The tool's
+// base RiskLevel() is RiskDestructive — a conservative stub for the worst
+// case. Without an explicit downgrade here, a plain SELECT would surface in
+// the confirm dialog as [DESTRUCTIVE] (and trigger a confirm at all in modes
+// where read-only auto-allows).
 func (t *QueryTool) PlanPermission(ctx context.Context, input json.RawMessage, baseRisk permission.RiskLevel) (*tools.PermissionPlan, error) {
 	var params queryInput
 	if err := json.Unmarshal(input, &params); err != nil {
-		return nil, nil
+		return nil, nil // unparseable input — fall back to base risk
 	}
 
-	// Step 1: Classify the actual SQL risk (handles CTE-wrapped DML, etc.)
+	// Classify the actual SQL risk (handles CTE-wrapped DML, etc.).
 	sqlRisk := baseRisk
 	if params.SQL != "" {
 		sqlRisk = bq.ClassifySQLRisk(params.SQL)
 	}
 
-	// If the SQL is not read-only (e.g., CTE-wrapped INSERT), override risk and return.
+	// SQL escalates above read-only (DML/DDL/destructive/admin) — surface
+	// the classified risk directly.
 	if sqlRisk > permission.RiskReadOnly {
 		return &tools.PermissionPlan{RiskOverride: &sqlRisk}, nil
 	}
 
-	// Step 2: Cost-aware gating for read-only queries
+	// Read-only path. Cost gating may further escalate to DML or deny, but
+	// the default outcome must be a RiskReadOnly downgrade.
+	readOnly := permission.RiskReadOnly
+
 	if t.client == nil || t.costConfig == nil {
-		return nil, nil
+		return &tools.PermissionPlan{RiskOverride: &readOnly}, nil
 	}
 	if params.DryRun || strings.TrimSpace(params.SQL) == "" {
-		return nil, nil
+		return &tools.PermissionPlan{RiskOverride: &readOnly}, nil
 	}
 
 	_, estimatedCost, err := t.client.EstimateCost(ctx, params.SQL)
 	if err != nil || estimatedCost < 0 {
-		return nil, nil
+		return &tools.PermissionPlan{RiskOverride: &readOnly}, nil
 	}
 
 	if t.costConfig.MaxQueryCost > 0 && estimatedCost > t.costConfig.MaxQueryCost {
@@ -125,7 +135,7 @@ func (t *QueryTool) PlanPermission(ctx context.Context, input json.RawMessage, b
 		return &tools.PermissionPlan{RiskOverride: &risk}, nil
 	}
 
-	return nil, nil
+	return &tools.PermissionPlan{RiskOverride: &readOnly}, nil
 }
 
 func (t *QueryTool) Execute(ctx context.Context, input json.RawMessage) (*tools.Result, error) {
