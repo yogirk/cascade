@@ -2,6 +2,38 @@
 
 All notable changes to Cascade are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0.0] — 2026-05-02
+
+### Added
+
+- **Theme system** with three named themes — Classic (sky blue, the legacy palette), Verse in Code (warm chestnut), and Midnight Hydrology (deep ocean blue). `/theme` slash command lists themes and switches live; the active palette flows through every renderer including markdown, BigQuery tables, charts, and the spinner.
+- **Bordered adaptive-width tables** for tool output — rounded corners, accent header, alternating-row dim, column separators. Tables shrink-wrap to content rather than stretching to fill the terminal.
+- **Branch-glyph (⎿) information hierarchy** — tool body, errors, and diffs render with `⎿` on the first line and aligned continuation indent on the rest, mirroring Claude Code's parent/child reading.
+- **Click to expand/collapse tool blocks**. Mouse click on any tool body toggles it. `Ctrl+E` now acts on the bottom-most expandable tool currently visible in the viewport (replaces the older reverse-cycle behaviour).
+- **Inline SQL syntax highlighting** in tool-args headers and the destructive-action confirm dialog, via chroma. Data-driven through a `languageByArgKey` map — adding Python, dbt, YAML, etc. is a one-line entry, not a new highlighter.
+- **Responsive markdown tables in assistant output**. Glamour v2 hardcodes table width with no exposed knob; no project in the charmbracelet ecosystem (Crush, Mods, Glow) has solved this. Cascade now extracts pipe tables in a pre-pass and routes them through a shrink-wrapping lipgloss builder, with prose still going through Glamour.
+- **Welcome logo redesign** — 4×3 rubik-cube grid of square tiles in the slokam/anushtup-inspired dialect, with three brightness tiers (`cascadeBg1/2/3`) painting a directional cascade gradient. Logo is vertically centered against right-panel content so it stays anchored regardless of how many status rows render.
+
+### Changed
+
+- **Module path** renamed from `github.com/yogirk/cascade` to `github.com/slokam-ai/cascade` following the repo move to the slokam-ai GitHub org.
+- **Confirm dialog "Allow tool for session" description** now reads "Allow ALL future invocations of this tool until you exit" — the original "Skip future prompts" copy underplayed the blast radius for tools like `bash` or `bigquery_query`.
+- **Welcome screen layout** — left panel sized to match right panel height with the logo centered inside. `JoinHorizontal` switched from `Center` to `Top` so vertical centering happens inside the left box, not at the join.
+
+### Fixed
+
+- **(HIGH security)** `gcloud auth print-access-token` removed from the bash gcloud read-only allowlist — was auto-approved in ModeAsk, which allowed the LLM to print a live OAuth bearer token without user confirmation. Pinned with a regression test asserting it classifies as `RiskDestructive`.
+- **`SELECT` queries surfaced as `[DESTRUCTIVE]`** in the confirm dialog when no cost config was supplied. `QueryTool.PlanPermission` now sets `RiskOverride: RiskReadOnly` on every read-only return path; previously four paths returned `nil, nil` and let the conservative base risk bleed through. Three regression tests pin the previously-broken paths.
+- **Theme switch** now correctly refreshes the welcome banner snapshot (was baked with the previous palette and read as a stale strip after switching) and the input textarea inner styles (placeholder, cursor line, end-of-buffer region).
+
+### Security
+
+- **BigQuery scripting constructs** (`CALL <proc>`, `BEGIN ... END`, `EXECUTE IMMEDIATE`) explicitly verified to fall through to `RiskDestructive` in `classifyKeyword`. Test cases pin the behaviour and the default branch carries a comment warning future maintainers not to add them to the read-only branch without a parser that can analyse the procedure body — that would open a permission-bypass path.
+
+### Removed
+
+- Dead `cascadeBg1/2/3` lipgloss.Style var wrappers from `internal/tui/styles.go`. The current welcome logo applies the palette colours as foregrounds directly via `cascadeBg{1,2,3}Color`; the Style wrappers were leftover from an earlier rendering approach with no readers.
+
 ## [0.3.2.0] — 2026-03-29
 
 ### Added
