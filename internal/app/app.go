@@ -77,6 +77,12 @@ func New(ctx context.Context, cfg *config.Config, opts ...Options) (*App, error)
 	if err != nil {
 		return nil, fmt.Errorf("LLM provider setup failed: %w", err)
 	}
+	// Propagate the resolved provider back into cfg so downstream code
+	// (notably the TUI model picker, which keys availableModels by
+	// provider name) sees the auto-detected value when the user didn't
+	// set [model].provider explicitly. Without this, /model in the TUI
+	// reports "No model list available for provider " on a default config.
+	cfg.Model.Provider = modelAuth.Provider
 
 	// ── 3. Build LLM provider ──
 	prov, err := buildProvider(ctx, cfg.Model.Model, modelAuth)
